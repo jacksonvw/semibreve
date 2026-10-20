@@ -1,0 +1,21 @@
+# Build output: build.sh writes build/, and OUT=build-<name> for the extra
+# builds that run_checks.sh and debugging make.
+build/
+build-*/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Dependencies come from Fedora packages; never commit a virtualenv
+.venv/
+venv/
+
+# Editor state
+.vscode/
+.idea/
+
+# Secrets never belong in the repo
+.env
+.env.*

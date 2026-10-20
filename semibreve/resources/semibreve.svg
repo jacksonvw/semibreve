@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Semibreve — a whole note, which is what the word means.
+
+  Drawn rather than borrowed so it scales cleanly at 16px in a system tray and
+  at 128px in a launcher. currentColor is deliberate: Plasma recolours
+  monochrome tray icons to match the panel, so this follows a light or dark
+  theme without shipping two files.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <g transform="rotate(-20 32 32)">
+    <ellipse cx="32" cy="32" rx="20" ry="13"
+             fill="none" stroke="currentColor" stroke-width="7"/>
+    <ellipse cx="32" cy="32" rx="9" ry="5.5" fill="currentColor"/>
+  </g>
+</svg>

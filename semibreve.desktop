@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Semibreve
+GenericName=Audio Effects
+Comment=System-wide audio processing on FxSound's DSP
+Exec=semibreve
+Icon=semibreve
+Terminal=false
+StartupNotify=true
+StartupWMClass=semibreve
+Categories=AudioVideo;Audio;Mixer;
+Keywords=equaliser;equalizer;effects;fxsound;bass;

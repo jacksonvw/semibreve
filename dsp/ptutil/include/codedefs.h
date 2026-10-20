@@ -1,0 +1,214 @@
+/*
+FxSound
+Copyright (C) 2025  FxSound LLC
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+#ifndef _CODEDEFS_H_
+#define _CODEDEFS_H_  
+
+/*
+ * This is to get rid of the following warnings:
+ * warning C4996: 'sprintf' was declared deprecated
+ *   see declaration of 'sprintf. This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_DEPRECATE. See online help for details.'
+ */
+#define _CRT_SECURE_NO_DEPRECATE  
+#define _CRT_NON_CONFORMING_SWPRINTFS
+
+/* Add memory leak detection to debug versions (Requires Pre-Processor Define of _CRTDBG_MAP_ALLOC*/
+#include <stdlib.h>
+
+/* 5/20/13 - To allow Android/Linux builds, moved this windows specific include file down inside WIN32 block below
+#include <crtdbg.h> */
+
+#ifndef __ANDROID__
+#include <crtdbg.h>
+#include <windows.h>
+#endif //WIN32
+
+/* Semibreve: on Linux <windows.h> and <crtdbg.h> above resolve to the type
+ * shims in dsp/linux/. This adds the swprintf compatibility overloads, which
+ * must be visible everywhere the legacy two-argument form is called. */
+#ifdef PT_LINUX
+#include "pt_swprintf.h"
+#include "pt_stream.h"
+#endif
+
+/* 
+ * The following define will temporarily turn off memory tracing.  This is useful when
+ * we want to test the threaded tasks in debug mode. (With memory tracing on we have to disable
+ * threading due to a limitation of the library)
+ */
+#define PT_TURN_OFF_MEM_TRACE
+
+#ifndef PT_TURN_OFF_MEM_TRACE
+  #ifdef __cplusplus
+    #ifndef NO_PT_MEM_TRACE
+    #include "ptMemTrace.h"
+    #endif //NO_PT_MEM_TRACE
+  #endif //__cplusplus
+#endif //PT_TURN_OFF_MEM_TRACE
+
+/* 
+ * Next lines set whether functions are declared for static libs or dlls 
+ * For function declarations in function source code, using DLL's 
+ */
+#ifdef PT_EXPORT_DLL 
+	#define PT_DECLSPEC __declspec( dllexport )
+#endif //PT_EXPORT_DLL 
+
+/* For function declarations calling application source code, using DLL's */
+#ifdef PT_IMPORT_DLL
+	#define PT_DECLSPEC __declspec( dllimport )
+#endif //PT_IMPORT_DLL
+
+/* Static Library case */
+#ifndef PT_DECLSPEC
+	#define PT_DECLSPEC
+#endif //PT_DECLSPEC
+
+/* Widen string macros */
+#define PT_WIDEN2(x) L ## x
+#define PT_WIDEN(x) PT_WIDEN2(x)
+
+/* Wide versions of __FILE__ macro */
+#define PT_WFILE PT_WIDEN(__FILE__)
+
+/* Wide string version of __LINE__ macro */
+#define PT_STRINGIZE(x) PT_STRINGIZE2(x)
+#define PT_STRINGIZE2(x) PT_WIDEN(#x)
+#define PT_LINE_STRING PT_STRINGIZE(__LINE__)
+
+#define S(x) #x
+#define S_(x) S(x)
+#define S__LINE__ S_(__LINE__)
+
+/* Char version of __LINE__ macro, converts the numeral into a string */
+#define PT_STRINGIZE_CHAR2(x) #x
+#define PT_STRINGIZE_CHAR(x) PT_STRINGIZE_CHAR2(x)
+#define PT_LINE_STRING_CHAR PT_STRINGIZE_CHAR(__LINE__)
+
+/* Return codes for functions */
+#define OKAY 0
+#define NOT_OKAY_NO_BREAK 1 // Use this instead of NOT_OKAY when passed as parameter or assigned to a variable.
+
+/* Semibreve: PT_LINUX joins __ANDROID__ in taking the plain-constant branch
+ * below. Upstream's NOT_OKAY is not a value but a MessageBox — every error
+ * return in the library pops a modal dialog. That is untenable in an audio
+ * daemon, so the Linux build uses the same bare 1 the Android build does.
+ * Guarded rather than deleted so an upstream merge stays a clean diff. */
+#if defined( _DEBUG ) && !defined( __ANDROID__ ) && !defined( PT_LINUX )
+	#ifdef UNICODE
+		static int ptDebugNotOkay(wchar_t *wcp_file, wchar_t *wcp_line)
+		{
+			if( IsDebuggerPresent() == 0 )
+				MessageBoxW(NULL, wcp_file, wcp_line, MB_OK);
+			else
+				DebugBreak();
+			return(NOT_OKAY_NO_BREAK);
+		}
+		#define NOT_OKAY ptDebugNotOkay(PT_WFILE, PT_LINE_STRING)
+	#else //UNICODE
+		static int ptDebugNotOkay(char *cp_file, char *cp_line)
+		{
+			if( IsDebuggerPresent() == 0 )
+				MessageBoxA(NULL, cp_file, cp_line, MB_OK);
+			else
+				DebugBreak();
+			return(NOT_OKAY_NO_BREAK);
+		}
+		#define NOT_OKAY ptDebugNotOkay(__FILE__, PT_LINE_STRING_CHAR)
+	#endif //UNICODE
+
+#elif !defined( __ANDROID__ ) && !defined( PT_LINUX ) //NOT DEBUG && WIN32
+	#ifdef UNICODE
+		static int ptReleaseNotOkay(wchar_t *wcp_file, wchar_t *wcp_line)
+		{
+			MessageBoxW(NULL, wcp_file, wcp_line, MB_OK);
+			return(NOT_OKAY_NO_BREAK);
+		}
+		#define NOT_OKAY ptReleaseNotOkay(PT_WFILE, PT_LINE_STRING)
+	#else
+		static int ptReleaseNotOkay(char *cp_file, char *cp_line)
+		{
+			MessageBoxA(NULL, cp_file, cp_line, MB_OK);
+			return(NOT_OKAY_NO_BREAK);
+		}
+		#define NOT_OKAY ptReleaseNotOkay( __FILE__, PT_LINE_STRING_CHAR)
+	#endif //UNICODE
+
+#else // NOT WIN32
+	#define NOT_OKAY 1
+
+#endif //_DEBUG && WIN32
+
+/* Define a PT_HANDLE */
+typedef int PT_HANDLE;
+
+/* IS_TRUE, and IS_FALSE */
+#define IS_FALSE 0
+#define IS_TRUE  1 
+
+#define realtype float
+
+/*
+ * Semibreve: fixed-width stand-ins for `long` inside the DSP parameter
+ * structs (c_play.h, c_aural.h, c_wid.h, c_lex.h, c_max.h).
+ *
+ * Those structs are not allocated — they are overlaid on the float arrays the
+ * DSP passes around, as in
+ *
+ *     struct dspPlayStructType *s = (struct dspPlayStructType *)params;
+ *
+ * where params is a float*. Every member therefore has to be exactly one
+ * 32-bit slot wide, an invariant c_play.h states directly: "must occupy same
+ * 32 word locations as defines in Boardrv1.h".
+ *
+ * MSVC satisfies that for free because Windows is LLP64, where long is 32
+ * bits. Linux is LP64, where long is 64. Every long member silently doubled
+ * in width and shifted every field after it, so the DSP read its coefficients
+ * from the wrong offsets — which surfaced as the Bass effect producing an
+ * unstable filter that diverged to NaN in about 125 samples.
+ *
+ * These typedefs are 32-bit on every platform, so this is a no-op wherever
+ * upstream already builds and a correction only where it does not.
+ */
+#include <stdint.h>
+typedef int32_t  PT_LONG32;
+typedef uint32_t PT_ULONG32;
+
+/* For setting the precision of cos/sin in response plotting functions */
+#define respDouble realtype
+
+/* OS Dependent defines */
+#ifndef WIN32
+	#ifndef HWND
+		#define HWND void *
+	#endif
+#endif
+
+// Support for Android debugging writes to Eclipse console
+#ifdef __ANDROID__
+	// Use of below requires LOCAL_LDLIBS := -llog in Android.mk
+	#include <android/log.h>
+	#define ANDROID_LOG_TAG __FILE__
+	#define DPRINTF(...)  __android_log_print(ANDROID_LOG_DEBUG,ANDROID_LOG_TAG,__VA_ARGS__)
+	#define IPRINTF(...)  __android_log_print(ANDROID_LOG_INFO,ANDROID_LOG_TAG,__VA_ARGS__)
+	#define EPRINTF(...)  __android_log_print(ANDROID_LOG_ERROR,ANDROID_LOG_TAG,__VA_ARGS__)
+#endif // __ANDROID__
+
+// warning C4996: 'swprintf': function has been changed to conform with the ISO C standard, adding an extra character count parameter. To use the traditional Microsoft version, set _CRT_NON_CONFORMING_SWPRINTFS.
+#define _CRT_NON_CONFORMING_SWPRINTFS
+
+#endif //_CODEDEFS_H_

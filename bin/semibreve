@@ -1,0 +1,137 @@
+#!/bin/bash
+#
+# Semibreve — one command: daemon, routing, window.
+#
+# Everything the manual route required, done in order and idempotently, so
+# running this twice is harmless and running it after a reboot Just Works.
+#
+#   semibreve              start it, route everything through it
+#   semibreve --no-route   start it, leave routing alone
+#   semibreve --stop       stop it and put audio back
+#
+# The application owns the audio engine: it starts it, restarts it if it dies,
+# and stops it on quit. Quitting from the tray does the same thing as --stop.
+#
+# Routing is the part that catches people out. Making Semibreve the default
+# sink only affects streams that start *afterwards* — anything already playing
+# stays where it is, which looks exactly like the effects doing nothing. So
+# this also moves the streams that are already running.
+#
+set -u
+
+# The checkout this script lives in, found from the script's own location
+# (through any symlink to it), so the clone can live anywhere.
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+DAEMON="$ROOT/build/semibreved"
+LOG=/tmp/semibreved.log
+UILOG=/tmp/semibreve.log
+SINK=semibreve
+FALLBACK_FILE="$HOME/.config/semibreve/previous-sink"
+
+die() { echo "semibreve: $*" >&2; exit 1; }
+
+# The sink to fall back to when we stop: whatever was default before we first
+# took over. Remembered on disk so --stop works in a new shell.
+remember_default() {
+    local cur
+    cur=$(pactl get-default-sink 2>/dev/null) || return 0
+    [ "$cur" = "$SINK" ] && return 0
+    mkdir -p "$(dirname "$FALLBACK_FILE")"
+    printf '%s\n' "$cur" > "$FALLBACK_FILE"
+}
+
+previous_default() {
+    if [ -r "$FALLBACK_FILE" ]; then
+        cat "$FALLBACK_FILE"
+    else
+        # Best guess: the first hardware sink that isn't ours.
+        pactl list short sinks | awk '$2 != "semibreve" {print $2; exit}'
+    fi
+}
+
+# Move every stream that is not ours onto $1. Skips semibreved's own output,
+# which must keep going to the hardware or the audio has nowhere to land.
+move_streams_to() {
+    local target=$1 id
+    for id in $(pactl list short sink-inputs 2>/dev/null | cut -f1); do
+        local name
+        name=$(pactl list sink-inputs 2>/dev/null | awk -v want="Sink Input #$id" '
+            $0 == want {found=1} found && /media\.name = / {print; exit}')
+        case "$name" in *"Semibreve output"*) continue ;; esac
+        pactl move-sink-input "$id" "$target" 2>/dev/null
+    done
+}
+
+case "${1:-}" in
+--stop)
+    # Quitting the app stops the daemon, so ask the app to quit and let it do
+    # the tidying. The pkill is only a fallback for an app that is already gone.
+    pkill -f 'semibreve\.main' 2>/dev/null
+    sleep 1
+    pkill -x semibreved 2>/dev/null
+    prev=$(previous_default)
+    if [ -n "$prev" ]; then
+        pactl set-default-sink "$prev" 2>/dev/null
+        move_streams_to "$prev"
+    fi
+    echo "semibreve: stopped; audio back on ${prev:-the default sink}"
+    exit 0
+    ;;
+esac
+
+NO_ROUTE=0
+for a in "$@"; do
+    case "$a" in
+    --no-route) NO_ROUTE=1 ;;
+    --help|-h)
+        # Print the leading comment block, stopping at the first line that is
+        # not a comment. A fixed line range drifts the moment the header is
+        # edited, and prints "set -u" at you.
+        awk 'NR>2 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
+        exit 0 ;;
+    esac
+done
+
+[ -x "$DAEMON" ] || die "$DAEMON is missing — run $ROOT/build.sh"
+
+# -- routing ------------------------------------------------------------
+# The app starts the daemon itself, so all that is left here is the routing —
+# and only the part the app cannot do for itself, which is moving streams that
+# are already playing. Making Semibreve the default only affects streams that
+# start afterwards; anything already running stays where it is, and that looks
+# exactly like the effects doing nothing.
+if [ "$NO_ROUTE" = 0 ]; then
+    remember_default
+fi
+
+# -- the window ---------------------------------------------------------
+# /usr/bin/python3 explicitly: PySide6 here is the Fedora RPM and exists only
+# under the system interpreter, so a venv or pyenv shim on PATH would find the
+# package and then fail on `import PySide6`.
+PY=/usr/bin/python3
+"$PY" -c 'import PySide6' 2>/dev/null \
+    || die "$PY cannot import PySide6 — sudo dnf install python3-pyside6"
+
+if pgrep -f 'semibreve\.main' >/dev/null 2>&1; then
+    echo "semibreve: already running"
+    exit 0
+fi
+
+env PYTHONPATH="$ROOT" nohup "$PY" -m semibreve.main >"$UILOG" 2>&1 &
+
+if [ "$NO_ROUTE" = 0 ]; then
+    # Wait for the app to bring the sink up, then move what is already playing.
+    for _ in $(seq 1 40); do
+        pactl list short sinks 2>/dev/null | grep -q "	$SINK	" && break
+        sleep 0.25
+    done
+    if pactl list short sinks 2>/dev/null | grep -q "	$SINK	"; then
+        pactl set-default-sink "$SINK" 2>/dev/null
+        move_streams_to "$SINK"
+        echo "semibreve: running, everything routed through it"
+    else
+        echo "semibreve: the sink did not appear — see $LOG" >&2
+    fi
+else
+    echo "semibreve: running"
+fi
