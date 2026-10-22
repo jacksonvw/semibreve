@@ -52,7 +52,9 @@ class AppearanceGroup(QGroupBox):
         # Opacity slider.
         self._opacity_slider = QSlider(Qt.Horizontal)
         self._opacity_slider.setRange(0, 100)
-        self._opacity_slider.setValue(int(self._config.window_opacity * 100))
+        # round(), not int(): 0.57 * 100 is 56.99999999999999, so truncating
+        # took a point off 29%, 57% and 58% every time the dialog was saved.
+        self._opacity_slider.setValue(round(self._config.window_opacity * 100))
         self._opacity_label = QLabel(f"{self._opacity_slider.value()}%")
         self._opacity_slider.valueChanged.connect(
             lambda v: self._opacity_label.setText(f"{v}%")
