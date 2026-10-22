@@ -101,7 +101,6 @@ class MainWindow(QMainWindow):
         # Set only by the tray's Quit. Everything else that looks like closing
         # is a hide.
         self._quitting = False
-        self._sound_captured = False
 
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
@@ -375,16 +374,18 @@ class MainWindow(QMainWindow):
     def _capture_sound(self) -> None:
         """Record the current state so the next launch can restore it.
 
-        Once only, and only while the daemon is actually there. Teardown calls
-        the save path twice — the tray's Quit and then the window's close — and
-        by the second the daemon has been stopped, so every read returns its
-        default. That wrote `preset = ""` and every effect `0.0` over a good
-        config, and because the next launch restored those zeros it stayed
-        broken until the file was deleted.
+        Only while the daemon is actually there: with it gone, every read
+        returns its default. That wrote `preset = ""` and every effect `0.0`
+        over a good config, and because the next launch restored those zeros
+        it stayed broken until the file was deleted.
+
+        This used to run once only, to keep the second save at teardown from
+        doing exactly that — see closeEvent, which now skips it. Once only also
+        meant that after the window had been closed to the tray, nothing the
+        user changed was saved at Quit.
         """
-        if self._sound_captured or not self._daemon.available:
+        if not self._daemon.available:
             return
-        self._sound_captured = True
         sound = self._config.sound
         sound.preset = self._daemon.preset_id()
         sound.effects = {prop: self._daemon.effect(prop) for prop, _ in EFFECTS}
@@ -490,12 +491,14 @@ class MainWindow(QMainWindow):
         than quitting means the window comes back instantly and the tray icon
         stays as the answer to "is this on?".
         """
-        self._save_state()
         if self._quitting:
+            # Quit saved before it stopped the daemon. Saving again here would
+            # read a daemon that has already gone.
             self._tray.hide()
             super().closeEvent(ev)
             return
 
+        self._save_state()
         ev.ignore()
         self.hide()
 

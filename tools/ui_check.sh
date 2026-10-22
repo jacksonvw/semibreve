@@ -147,6 +147,23 @@ if built:
     if not off: ok("every EQ band is labelled with its centre frequency")
     else:       bad(f"EQ labels that misstate their band: {off}")
 
+# A preset chosen after the window was closed to the tray must still be saved
+# at Quit. It was not: saving ran once only, at that first close.
+import tomllib
+from semibreve.core.paths import config_path
+w.close()                       # hides to the tray, and saves
+w.show()
+idx = next((i for i in range(w._preset.count())
+            if w._preset.itemData(i) == "Pop"), -1)
+w._preset.setCurrentIndex(idx)
+w._on_preset_activated(idx)
+spin(800)
+w._on_tray_quit()
+with open(config_path(), "rb") as f:
+    saved = tomllib.load(f)["sound"]["preset"]
+if saved == "Pop": ok("a preset chosen after closing to the tray is saved at Quit")
+else:              bad(f'Quit saved preset "{saved}", expected "Pop"')
+
 # Losing the daemon must disable the controls rather than throw.
 w._on_availability(False)
 if not w._power.isEnabled() and w._banner.isVisible():
