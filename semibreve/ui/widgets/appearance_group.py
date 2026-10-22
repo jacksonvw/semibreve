@@ -2,7 +2,7 @@
 
 Four controls:
 - Background color picker (60×24 button)
-- Transparency slider (0..100%)
+- Opacity slider (0..100%, 100% = solid)
 - Blur behind checkbox (KDE)
 - Tint strength slider (0..100%)
 """
@@ -49,7 +49,7 @@ class AppearanceGroup(QGroupBox):
         self._color_btn.clicked.connect(self._pick_bg_color)
         form.addRow("Background color:", self._color_btn)
 
-        # Transparency slider.
+        # Opacity slider.
         self._opacity_slider = QSlider(Qt.Horizontal)
         self._opacity_slider.setRange(0, 100)
         self._opacity_slider.setValue(int(self._config.window_opacity * 100))
@@ -60,7 +60,7 @@ class AppearanceGroup(QGroupBox):
         opacity_row = QHBoxLayout()
         opacity_row.addWidget(self._opacity_slider)
         opacity_row.addWidget(self._opacity_label)
-        form.addRow("Transparency:", opacity_row)
+        form.addRow("Opacity:", opacity_row)
 
         # Blur behind.
         self._blur_behind_cb = QCheckBox("Enable blur behind window (KDE)")
