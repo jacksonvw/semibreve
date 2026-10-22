@@ -18,7 +18,11 @@
 set -u
 cd "$(dirname "$(readlink -f "$0")")/.."
 PROJ=$PWD
-trap 'pkill -f "$PROJ/build/semibreved" 2>/dev/null' EXIT
+# A config of its own. On connecting, the window restores whatever preset,
+# effects and device the user last had, over the daemon's --preset Jazz, so
+# against a real ~/.config the result depended on what was saved there.
+CFG=$(mktemp -d)
+trap 'pkill -f "$PROJ/build/semibreved" 2>/dev/null; rm -rf "$CFG"' EXIT
 
 [ -x build/semibreved ] || { echo "build/semibreved missing — run ./build.sh"; exit 1; }
 
@@ -31,7 +35,7 @@ sleep 3
 grep -q "on the session bus" /tmp/semibreve_uicheck_daemon.log || {
     echo "  FAIL  daemon did not claim the bus"; exit 1; }
 
-QT_QPA_PLATFORM=offscreen PYTHONPATH="$PROJ" python3 - <<'EOF'
+XDG_CONFIG_HOME="$CFG" QT_QPA_PLATFORM=offscreen PYTHONPATH="$PROJ" python3 - <<'EOF'
 import sys
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QTimer, QEventLoop
