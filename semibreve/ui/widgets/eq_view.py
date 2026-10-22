@@ -53,6 +53,11 @@ class _Band(QWidget):
 
         self._readout = QLabel("0.0")
         self._readout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        # Wide enough for any reading from the start. Sized to its text, a
+        # readout that grew mid-drag widened its column and shoved every fader
+        # to the right of it sideways.
+        self._readout.setMinimumWidth(
+            self._readout.fontMetrics().horizontalAdvance(_format_db(MIN_DB)))
 
         self._slider = QSlider(Qt.Orientation.Vertical)
         self._slider.setRange(int(MIN_DB * SCALE), int(MAX_DB * SCALE))
