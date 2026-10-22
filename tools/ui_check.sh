@@ -111,6 +111,14 @@ else:
     if d.preset_id() == "Metal": ok(f'preset change applied (now "{d.preset_name()}")')
     else:                        bad(f'preset did not change (daemon says "{d.preset_id()}")')
 
+    # Choosing it again reloads it without changing its id, so no change ever
+    # arrived to replace "loading…".
+    w._on_preset_activated(idx)
+    spin(800)
+    note = w._preset_note.text()
+    if note == "Metal": ok('choosing the current preset again settles on "Metal"')
+    else:               bad(f'choosing the current preset again left the note at "{note}"')
+
 # The EQ, once shown, should build from the daemon's own band table.
 w._eq.setVisible(True)
 w._refresh_eq()

@@ -412,9 +412,13 @@ class MainWindow(QMainWindow):
         if err:
             self._preset_note.setText(err)
             return
-        # The daemon applies on a timer under a fade, and announces the result
-        # when it lands. Until then, say something true.
+        # The daemon applies on a timer under a fade, so until it lands, say
+        # something true. Then look rather than wait to be told: the poll
+        # reports only what changed, and choosing the preset already in force
+        # reloads it without changing its id, which left "loading…" up for
+        # good. 250 ms is the same wait as _restore_sound's.
         self._preset_note.setText("loading…")
+        QTimer.singleShot(250, self._refresh_preset)
 
     def _on_effect_changed(self, prop: str, value: float) -> None:
         slider = self._sliders.get(prop)
