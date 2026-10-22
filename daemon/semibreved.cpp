@@ -1208,7 +1208,8 @@ int main(int argc, char **argv)
 			list_presets();
 			return 0;
 		} else if (strcmp(argv[i], "--help") == 0) {
-			printf("usage: semibreved [--preset NAME|PATH] [--bypass]\n\n"
+			printf("usage: semibreved [--preset NAME|PATH] [--output SINK] [--bypass]\n"
+			       "       semibreved --list-presets\n\n"
 			       "  Registers a PipeWire sink named \"Semibreve\" and runs\n"
 			       "  FxSound's DSP over everything routed to it.\n\n"
 			       "  --preset NAME    load a stock preset by name (\"Jazz\", \"6\")\n"
@@ -1216,9 +1217,9 @@ int main(int argc, char **argv)
 			       "  --list-presets   show the stock presets and their names\n"
 			       "  --output SINK    send our output to this sink by name\n"
 			       "  --bypass         pass audio through untouched, for A/B\n\n"
-			       "  Without --preset the built-in defaults are used. The preset\n"
-			       "  is applied at startup; changing it while running needs the\n"
-			       "  D-Bus surface (Milestone 3).\n");
+			       "  Without --preset the built-in defaults are used. Everything\n"
+			       "  can be changed while it runs, over D-Bus: see\n"
+			       "  busctl --user introspect org.semibreve.Daemon /org/semibreve/Daemon\n");
 			return 0;
 		} else {
 			fprintf(stderr, "semibreved: unknown argument '%s'\n", argv[i]);
