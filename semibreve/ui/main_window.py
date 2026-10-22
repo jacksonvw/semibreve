@@ -233,9 +233,19 @@ class MainWindow(QMainWindow):
         line.setFixedHeight(1)
         return line
 
+    def _eq_open(self) -> bool:
+        """Whether the EQ section is expanded, on screen or not.
+
+        Not ``isVisible()``, which is False for every widget until the window
+        is first shown. Started with the EQ saved open, that labelled the
+        button "Show equaliser" over an open EQ, and with a daemon already
+        running it left the EQ empty: the faders were never built.
+        """
+        return self._eq.isVisibleTo(self)
+
     def _update_eq_toggle_text(self) -> None:
         self._eq_toggle.setText(
-            "Hide equaliser" if self._eq.isVisible() else "Show equaliser"
+            "Hide equaliser" if self._eq_open() else "Show equaliser"
         )
 
     def _on_preferences(self) -> None:
@@ -251,7 +261,7 @@ class MainWindow(QMainWindow):
         self._apply_appearance()
 
     def _on_eq_toggle(self) -> None:
-        show = not self._eq.isVisible()
+        show = not self._eq_open()
         self._eq.setVisible(show)
         self._update_eq_toggle_text()
         self._config.show_eq = show
@@ -320,7 +330,7 @@ class MainWindow(QMainWindow):
         self._preset_note.setText(name or "")
 
     def _refresh_eq(self) -> None:
-        if self._eq.isVisible():
+        if self._eq_open():
             self._eq.set_bands(self._daemon.eq_bands())
 
     def _reload_presets(self) -> None:

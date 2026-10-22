@@ -41,7 +41,11 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QTimer, QEventLoop
 
 app = QApplication(sys.argv)
+from semibreve.core.config import AppConfig, save_config
 from semibreve.ui.main_window import MainWindow
+
+# Start with the EQ saved open, the way someone who uses it comes back to it.
+save_config(AppConfig(show_eq=True))
 
 fails = []
 def ok(msg):   print(f"  \033[32mpass\033[0m  {msg}")
@@ -60,6 +64,21 @@ spin(1500)
 d = w._daemon
 if d.available: ok("UI connected to the daemon")
 else:           bad("UI did not see the daemon"); print("no point continuing"); sys.exit(1)
+
+# Checked before anything moves the EQ, since any change rebuilds it. With the
+# daemon already running it came up empty, under "Show equaliser".
+built, label = len(w._eq._bands), w._eq_toggle.text()
+if built >= 31 and label == "Hide equaliser":
+    ok(f'EQ saved open comes up with its {built} faders, under "{label}"')
+else:
+    bad(f'EQ saved open came up with {built} faders, under "{label}"')
+w._on_eq_toggle()
+closed = (w._eq.isHidden(), w._eq_toggle.text())
+w._on_eq_toggle()
+if closed == (True, "Show equaliser") and w._eq_toggle.text() == "Hide equaliser":
+    ok("the equaliser button hides and shows it")
+else:
+    bad(f'equaliser button: after one press {closed}, after two "{w._eq_toggle.text()}"')
 
 # Presets populated from the daemon, not hardcoded.
 n = w._preset.count()
