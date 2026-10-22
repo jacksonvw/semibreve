@@ -27,6 +27,7 @@ import os
 import shutil
 import signal
 import subprocess
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -43,6 +44,12 @@ LOG_PATH = "/tmp/semibreved.log"
 # own startup would otherwise be relaunched forever, and a fast loop is worse
 # than an honest "it will not start".
 MAX_RESTARTS = 3
+
+# A daemon that ran this long before stopping did survive its startup, so its
+# exit starts a new run of restarts instead of adding to the last one. Without
+# it the count never reset, and the fourth unplugged output device of a session
+# was taken for a daemon that will not start.
+STABLE_SECONDS = 30
 
 
 def _pactl(*args: str) -> str:
@@ -83,6 +90,7 @@ class Supervisor(QObject):
         self._proc: subprocess.Popen | None = None
         self._ours = False          # did we start the one that is running?
         self._restarts = 0
+        self._spawned_at = 0.0
         self._stopping = False
 
         self._watch = QTimer(self)
@@ -133,6 +141,7 @@ class Supervisor(QObject):
             return False
 
         self._ours = True
+        self._spawned_at = time.monotonic()
         log.info("started daemon pid %s -> %s", self._proc.pid, target or "default sink")
         return True
 
@@ -177,6 +186,8 @@ class Supervisor(QObject):
 
         code = proc.returncode
         self._proc = None
+        if time.monotonic() - self._spawned_at >= STABLE_SECONDS:
+            self._restarts = 0
         self._restarts += 1
         if self._restarts > MAX_RESTARTS:
             self._watch.stop()
