@@ -29,10 +29,12 @@ MAX_DB = 12.0
 
 
 def _format_hz(hz: float) -> str:
+    # Three significant figures is what the band centres need: 31.5, 1.25k,
+    # 3.15k. Rounding to whole Hz and tenths of a kHz printed those three as
+    # 32, 1.2k and 3.1k.
     if hz >= 1000:
-        text = f"{hz / 1000:.1f}"
-        return (text[:-2] if text.endswith(".0") else text) + "k"
-    return f"{hz:.0f}"
+        return f"{hz / 1000:.3g}k"
+    return f"{hz:.3g}"
 
 
 def _format_db(db: float) -> str:
