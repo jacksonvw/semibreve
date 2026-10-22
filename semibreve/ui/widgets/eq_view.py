@@ -35,6 +35,12 @@ def _format_hz(hz: float) -> str:
     return f"{hz:.0f}"
 
 
+def _format_db(db: float) -> str:
+    # Tenths, because the faders move in tenths and a few of them are audible.
+    # Whole dB printed a -0.3 cut as "-0"; "z" keeps negative zero out for good.
+    return f"{db:z.1f}"
+
+
 class _Band(QWidget):
     """One fader, its gain readout and its frequency label."""
 
@@ -45,7 +51,7 @@ class _Band(QWidget):
         self._index = index
         self._echo = False
 
-        self._readout = QLabel("0")
+        self._readout = QLabel("0.0")
         self._readout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
         self._slider = QSlider(Qt.Orientation.Vertical)
@@ -68,12 +74,12 @@ class _Band(QWidget):
         self._echo = True
         try:
             self._slider.setValue(int(round(max(MIN_DB, min(MAX_DB, db)) * SCALE)))
-            self._readout.setText(f"{self._slider.value() / SCALE:.0f}")
+            self._readout.setText(_format_db(self._slider.value() / SCALE))
         finally:
             self._echo = False
 
     def _on_slider(self, raw: int) -> None:
-        self._readout.setText(f"{raw / SCALE:.0f}")
+        self._readout.setText(_format_db(raw / SCALE))
         if not self._echo:
             self.value_changed.emit(self._index, raw / SCALE)
 
