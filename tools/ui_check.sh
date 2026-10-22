@@ -129,6 +129,24 @@ if built:
     if abs(got - 4.0) < 0.2: ok(f"an EQ band change reached the daemon ({got:.2f} dB)")
     else:                    bad(f"EQ band change did not land ({got:.2f} dB, wanted 4.0)")
 
+    # Tenths of a dB, and never a negative zero: whole dB showed -0.3 as "-0".
+    band = w._eq._bands[1]
+    shown = []
+    for db in (-0.3, -0.04, -12.0):
+        band.set_gain(db)
+        shown.append(band._readout.text())
+    if shown == ["-0.3", "0.0", "-12.0"]: ok(f"EQ readouts in tenths ({', '.join(shown)})")
+    else:                                 bad(f"EQ readouts read {shown}")
+
+    # Every label must read back as its own band's centre. Three did not:
+    # 31.5 Hz, 1.25 kHz and 3.15 kHz were labelled 32, 1.2k and 3.1k.
+    def hz(label):
+        return float(label[:-1]) * 1000 if label.endswith("k") else float(label)
+    off = [(b._hz.text(), f) for b, (f, _g) in zip(w._eq._bands, bands)
+           if abs(hz(b._hz.text()) - f) > f * 0.01]
+    if not off: ok("every EQ band is labelled with its centre frequency")
+    else:       bad(f"EQ labels that misstate their band: {off}")
+
 # Losing the daemon must disable the controls rather than throw.
 w._on_availability(False)
 if not w._power.isEnabled() and w._banner.isVisible():
