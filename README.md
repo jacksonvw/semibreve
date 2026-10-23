@@ -82,7 +82,8 @@ and moves anything that is already playing onto it.
 
 To add it to the app menu, run these from the `semibreve` folder. They link the
 launcher into your personal commands folder, install the menu entry pointing at
-it, and install the icon:
+it, and install the icon into your icon theme, where the title bar and the task
+manager take it from:
 
 ```bash
 mkdir -p ~/.local/bin ~/.local/share/applications ~/.local/share/icons/hicolor/scalable/apps
@@ -90,9 +91,11 @@ ln -sf "$PWD/bin/semibreve" ~/.local/bin/semibreve
 sed "s|^Exec=.*|Exec=$HOME/.local/bin/semibreve|" semibreve.desktop \
     > ~/.local/share/applications/semibreve.desktop
 cp semibreve/resources/semibreve.svg ~/.local/share/icons/hicolor/scalable/apps/
+gtk-update-icon-cache -t -f ~/.local/share/icons/hicolor
 ```
 
-To update, `git pull` and run `./build.sh` again.
+To update, `git pull`, run `./build.sh` again, and repeat the last two lines
+above to refresh the icon.
 
 The daemon can also be driven without the window:
 
