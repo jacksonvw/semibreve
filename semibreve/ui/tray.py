@@ -24,10 +24,11 @@ log = logging.getLogger(__name__)
 
 
 def app_icon() -> QIcon:
-    """The window and task-manager icon: the glyph in its "on" colour.
+    """The glyph in its "on" colour: the window icon's fallback.
 
-    Not the installed theme icon, and not the SVG. Both render black through
-    Qt, which disappears against a dark panel — see semibreve/ui/icon.py.
+    main.py asks the icon theme for semibreve.svg first and uses this only
+    when it has not been installed. Sent to KWin as pixels, this loses its
+    anti-aliased edges to black and red fringes; see main.py.
     """
     return glyph_icon(accent_color())
 

@@ -35,7 +35,7 @@ from semibreve.services.daemon import EFFECTS, DaemonService
 from semibreve.services.supervisor import Supervisor
 from semibreve.ui.widgets.effect_slider import EffectSlider
 from semibreve.ui.widgets.eq_view import EqView
-from semibreve.ui.tray import Tray, app_icon
+from semibreve.ui.tray import Tray
 from semibreve.ui.widgets.power_button import PowerButton
 
 log = logging.getLogger(__name__)
@@ -91,7 +91,6 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Semibreve")
-        self.setWindowIcon(app_icon())
 
         self._config = load_config()
         self._bg_alpha = 255

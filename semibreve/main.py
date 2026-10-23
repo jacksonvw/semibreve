@@ -43,8 +43,12 @@ def main() -> None:
     # is most of what "no taskbar entry" looks like in practice.
     app.setDesktopFileName("semibreve")
 
+    # By theme name, so KWin draws the icon itself. A pixmap reaches KWin as
+    # pixel buffers whose alpha it misreads, which turns every anti-aliased
+    # edge black or red in the title bar and task manager. The painted glyph
+    # is only the fallback, for when semibreve.svg has not been installed.
     from semibreve.ui.tray import app_icon
-    app.setWindowIcon(app_icon())
+    app.setWindowIcon(QIcon.fromTheme("semibreve", app_icon()))
 
     # Closing the window hides it to the tray, so Qt must not take the last
     # window going away as a reason to exit. Quit is the tray menu's job.

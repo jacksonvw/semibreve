@@ -2,12 +2,14 @@
 
 A whole note — which is what "semibreve" means.
 
-Drawn in code because the tray icon has to be visible on *someone's* panel and
-an SVG cannot be. Qt's SVG renderer resolves ``currentColor`` to black, so a
-theme-following file renders as a black note that vanishes on Plasma's dark
-panel; hard-coding white loses it on a light one. Painting it means the colour
-can be chosen at draw time — the desktop's own accent when audio is being
-processed, faded when it is not.
+Drawn in code for the tray, where the icon is the state: the desktop's own
+accent when audio is being processed, faded when it is not, dimmer still with
+no daemon. An icon theme cannot carry that, so the colour is chosen at draw
+time.
+
+The window icon is the installed SVG instead (resources/semibreve.svg; see
+main.py). A pixmap set as a window icon reaches KWin as pixel buffers and comes
+out with black and red fringes, where a theme name is drawn by KWin itself.
 """
 
 from __future__ import annotations
