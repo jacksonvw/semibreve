@@ -217,6 +217,9 @@ struct Impl {
 	/* Set while we are deliberately taking the playback stream down to point
 	 * it somewhere else, so its UNCONNECTED is not mistaken for a crash. */
 	bool reconnecting = false;
+	/* Set once the main loop has returned. Destroying the streams takes them
+	 * through UNCONNECTED, and every clean stop used to log a lost graph. */
+	bool stopping = false;
 
 	/* Counters, reported once at shutdown. Relaxed atomics: the audio thread
 	 * only ever increments them and nothing reads them until the loop has
@@ -432,7 +435,7 @@ void on_stream_state(void *userdata, enum pw_stream_state old,
 	/* Our own disconnect during an output change goes through UNCONNECTED on
 	 * the way to the new device. Without this guard, switching device looked
 	 * exactly like losing the server and the daemon exited on the spot. */
-	if (d->reconnecting)
+	if (d->reconnecting || d->stopping)
 		return;
 
 	if (state == PW_STREAM_STATE_ERROR ||
@@ -1433,6 +1436,7 @@ int main(int argc, char **argv)
 
 	pw_main_loop_run(g_impl.loop);
 
+	g_impl.stopping = true;
 	const int exit_code = g_impl.graph_lost ? 1 : 0;
 
 	fprintf(stderr,
