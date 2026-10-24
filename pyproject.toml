@@ -5,16 +5,9 @@ description = "System-wide audio processing for Linux, on FxSound's DSP"
 requires-python = ">=3.11"
 dependencies = [
     "PySide6>=6.6",
+    "dbus-python>=1.3",
     "platformdirs>=4.0",
     "tomli-w>=1.0",
-]
-
-[project.optional-dependencies]
-linux = [
-    "dbus-python>=1.3",
-]
-dev = [
-    "pytest>=8.0",
 ]
 
 [project.scripts]
@@ -29,11 +22,12 @@ include = ["semibreve*"]
 
 # Note: no ext_modules here, deliberately.
 #
-# The DSP is built by ./build.sh into build/libdfxdsp.so and loaded with
-# ctypes, the same way semibreve/core/blur.py loads libKF6WindowSystem — no
-# bindings and no build step on the Python side.
+# The DSP is built by ./build.sh into build/libdfxdsp.so and linked into the
+# semibreved daemon. The Python side never loads it: the window talks to the
+# daemon over D-Bus, so there are no bindings and no build step here.
 #
-# Routing it through a setuptools Extension was considered and dropped: it
-# would require python3-setuptools, which is not installed. The app is not
-# pip-installed either — bin/semibreve runs it straight from the checkout.
-# This file exists for metadata and to list the dependencies.
+# The app is not pip-installed either — bin/semibreve runs it straight from the
+# checkout, against Fedora's PySide6: that one uses the desktop's own Qt, which
+# is what gives a native Wayland window and KDE theming, where a PyPI wheel
+# bundles a Qt of its own. This file exists for metadata and to list the
+# dependencies.
