@@ -192,6 +192,14 @@ static int prop_get_outputs(sd_bus *bus, const char *path, const char *interface
 	return sd_bus_message_close_container(reply);
 }
 
+static int prop_get_underruns(sd_bus *bus, const char *path, const char *interface,
+                              const char *property, sd_bus_message *reply,
+                              void *userdata, sd_bus_error *err)
+{
+	(void)bus; (void)path; (void)interface; (void)property; (void)err;
+	return sd_bus_message_append(reply, "t", (uint64_t)sb_underruns(userdata));
+}
+
 static int method_load_preset(sd_bus_message *m, void *userdata, sd_bus_error *err)
 {
 	SbControl *c = userdata;
@@ -285,6 +293,10 @@ static const sd_bus_vtable sb_vtable[] = {
 	                         SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
 	SD_BUS_PROPERTY("OutputDevices", "a(ss)", prop_get_outputs, 0,
 	                SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+
+	/* Counted by the audio thread; no flags, so it is introspected as
+	 * changing without a signal, which is the truth. */
+	SD_BUS_PROPERTY("Underruns", "t", prop_get_underruns, 0, 0),
 
 	SD_BUS_METHOD("LoadPreset",  "s",  "",       method_load_preset,  SD_BUS_VTABLE_UNPRIVILEGED),
 	SD_BUS_METHOD("ListPresets", "",   "a(ss)",  method_list_presets, SD_BUS_VTABLE_UNPRIVILEGED),

@@ -1307,6 +1307,11 @@ void sb_quit(SbControl *c)
 		pw_main_loop_quit(d->loop);
 }
 
+unsigned long long sb_underruns(SbControl *c)
+{
+	return reinterpret_cast<Impl *>(c)->underruns.load(std::memory_order_relaxed);
+}
+
 int sb_num_eq_bands(SbControl *c)
 {
 	return reinterpret_cast<Impl *>(c)->dsp->getNumEqBands();

@@ -69,6 +69,10 @@ const char *sb_output_description(SbControl *c, int i);
  * their default output device. */
 void   sb_quit(SbControl *c);
 
+/* Times the output ran short mid-buffer since startup. For checks that need
+ * to tell a glitch in the graph from a fault of ours. */
+unsigned long long sb_underruns(SbControl *c);
+
 int    sb_num_eq_bands(SbControl *c);
 double sb_eq_frequency(SbControl *c, int band);
 double sb_eq_gain(SbControl *c, int band);
