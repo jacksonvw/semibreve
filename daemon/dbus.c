@@ -27,6 +27,7 @@
 
 #include <systemd/sd-bus.h>
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -293,11 +294,12 @@ static const sd_bus_vtable sb_vtable[] = {
 	SD_BUS_VTABLE_END
 };
 
-SbBus *sb_bus_new(SbControl *c)
+SbBus *sb_bus_new(SbControl *c, int *name_taken)
 {
 	SbBus *b = calloc(1, sizeof(*b));
 	int r;
 
+	*name_taken = 0;
 	if (b == NULL)
 		return NULL;
 	b->ctl = c;
@@ -319,9 +321,15 @@ SbBus *sb_bus_new(SbControl *c)
 	/* No replace, no queue: a second daemon should fail loudly rather than
 	 * quietly take the name from the one already carrying audio. */
 	r = sd_bus_request_name(b->bus, SB_NAME, 0);
+	if (r == -EEXIST) {
+		fprintf(stderr, "semibreved: another semibreved already owns %s — "
+		                "not starting a second Semibreve sink\n", SB_NAME);
+		*name_taken = 1;
+		goto fail;
+	}
 	if (r < 0) {
-		fprintf(stderr, "semibreved: could not take the name %s (%s) — "
-		                "is another semibreved running?\n", SB_NAME, strerror(-r));
+		fprintf(stderr, "semibreved: could not take the name %s (%s)\n",
+		        SB_NAME, strerror(-r));
 		goto fail;
 	}
 

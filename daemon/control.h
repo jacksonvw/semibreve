@@ -80,8 +80,10 @@ typedef struct SbBus SbBus;
 
 /* Connects to the session bus and claims the name. Returns NULL on failure
  * with a message on stderr; the daemon carries on without a control surface
- * rather than refusing to pass audio. */
-SbBus *sb_bus_new(SbControl *c);
+ * rather than refusing to pass audio. The exception is the name already being
+ * owned: that is another semibreved, so *name_taken is set and this one must
+ * not start, or it adds a second Semibreve sink that nothing can control. */
+SbBus *sb_bus_new(SbControl *c, int *name_taken);
 
 /* The fd to watch, and the pump to call when it is readable. */
 int  sb_bus_fd(SbBus *b);

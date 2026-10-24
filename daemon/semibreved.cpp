@@ -1414,6 +1414,32 @@ int main(int argc, char **argv)
 	pw_loop_add_signal(pw_main_loop_get_loop(g_impl.loop), SIGTERM, on_signal, &g_impl);
 
 	/*
+	 * The control surface comes up before the streams, and its failure is not
+	 * fatal. A daemon that passes audio without D-Bus is still doing its job;
+	 * one that refuses to start because no session bus was found is not.
+	 *
+	 * The one failure that is fatal is the name being taken, which means
+	 * another semibreved is running. Carrying on used to register a second
+	 * Semibreve sink that nothing could control; finding out before the
+	 * streams exist means there never is one. No handler runs until the main
+	 * loop does, by which time the streams are connected.
+	 */
+	int name_taken = 0;
+	g_impl.bus = sb_bus_new(reinterpret_cast<SbControl *>(&g_impl), &name_taken);
+	if (name_taken)
+		return 1;
+	if (g_impl.bus != nullptr) {
+		const int fd = sb_bus_fd(g_impl.bus);
+		g_impl.bus_source = pw_loop_add_io(pw_main_loop_get_loop(g_impl.loop),
+		                                   fd, SPA_IO_IN, false, on_bus_io, &g_impl);
+		if (g_impl.bus_source == nullptr) {
+			fprintf(stderr, "semibreved: could not watch the D-Bus fd\n");
+			sb_bus_free(g_impl.bus);
+			g_impl.bus = nullptr;
+		}
+	}
+
+	/*
 	 * node.link-group ties the two nodes together as one unit, node.group puts
 	 * them on the same driver so the trigger handoff stays inside one cycle,
 	 * and node.virtual marks the pair as not backed by hardware. This is the
@@ -1534,23 +1560,6 @@ int main(int argc, char **argv)
 		if (g_impl.registry == nullptr)
 			fprintf(stderr, "semibreved: no registry — the output device list "
 			                "will be empty\n");
-	}
-
-	/*
-	 * The control surface comes up last, and its failure is not fatal. A
-	 * daemon that passes audio without D-Bus is still doing its job; one that
-	 * refuses to start because no session bus was found is not.
-	 */
-	g_impl.bus = sb_bus_new(reinterpret_cast<SbControl *>(&g_impl));
-	if (g_impl.bus != nullptr) {
-		const int fd = sb_bus_fd(g_impl.bus);
-		g_impl.bus_source = pw_loop_add_io(pw_main_loop_get_loop(g_impl.loop),
-		                                   fd, SPA_IO_IN, false, on_bus_io, &g_impl);
-		if (g_impl.bus_source == nullptr) {
-			fprintf(stderr, "semibreved: could not watch the D-Bus fd\n");
-			sb_bus_free(g_impl.bus);
-			g_impl.bus = nullptr;
-		}
 	}
 
 	fprintf(stderr, "semibreved: sink \"Semibreve\" registered, %s, out -> %s%s\n",

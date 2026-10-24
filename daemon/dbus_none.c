@@ -17,9 +17,10 @@
 #include <stdio.h>
 #include <stddef.h>
 
-SbBus *sb_bus_new(SbControl *c)
+SbBus *sb_bus_new(SbControl *c, int *name_taken)
 {
 	(void)c;
+	*name_taken = 0;
 	fprintf(stderr, "semibreved: built without libsystemd — no D-Bus control "
 	                "surface (install systemd-devel and rebuild)\n");
 	return NULL;
