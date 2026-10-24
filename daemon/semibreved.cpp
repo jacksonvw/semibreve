@@ -176,6 +176,18 @@ struct Impl {
 
 	std::atomic<bool> bypass {false};
 
+	/*
+	 * Where the output may fade back in after a disruptive change: the ring
+	 * position whose audio was processed after the change, plus the hold. The
+	 * main loop sets it when it applies; the playback side stays silent until
+	 * it has played past it. See on_apply_timer.
+	 */
+	std::atomic<uint32_t> release_at {0};
+	std::atomic<bool>     release_pending {false};
+	/* Frames in the capture side's last buffer: how much may be in flight
+	 * across a change. Capture thread writes, main loop reads. */
+	std::atomic<uint32_t> last_chunk {0};
+
 	/* A disruptive change in flight. Main loop only.
 	 *   1 = faded out, waiting to apply
 	 *   2 = applied, holding silent while the transient clears
@@ -291,6 +303,7 @@ void on_capture_process(void *userdata)
 
 	if (frames > 0) {
 		d->frames_in.fetch_add(frames, std::memory_order_relaxed);
+		d->last_chunk.store(frames, std::memory_order_relaxed);
 
 		/* Only this thread moves ring_w, so a relaxed load of our own index
 		 * is fine; ring_r must be acquired to see the reader's progress. */
@@ -392,11 +405,22 @@ void on_playback_process(void *userdata)
 		 */
 		{
 			const float target = d->target_gain.load(std::memory_order_relaxed);
+			/* Not before the audio processed after a change has reached us,
+			 * to the sample: see on_apply_timer. */
+			uint32_t held = 0;
+			if (d->release_pending.load(std::memory_order_acquire)) {
+				const int32_t left = (int32_t)(d->release_at.load(std::memory_order_relaxed) - r);
+				if (left > 0)
+					held = ((uint32_t)left < got) ? (uint32_t)left : got;
+				else
+					d->release_pending.store(false, std::memory_order_relaxed);
+			}
 			float g = d->gain;
 			const float step = d->gain_step;
 			for (uint32_t i = 0; i < got; i++) {
-				if (g < target) { g += step; if (g > target) g = target; }
-				else if (g > target) { g -= step; if (g < target) g = target; }
+				const float t = (i < held) ? 0.0f : target;
+				if (g < t) { g += step; if (g > t) g = t; }
+				else if (g > t) { g -= step; if (g < t) g = t; }
 				dst[(size_t)i * NCH]     *= g;
 				dst[(size_t)i * NCH + 1] *= g;
 			}
@@ -886,13 +910,21 @@ const struct pw_registry_events registry_events = [] {
  * HOLD_MS is the wait *after* applying, before fading back up, and it exists
  * because fading out beforehand does nothing about the transient the DSP emits
  * once its coefficients change underneath its filter state. The ring also still
- * holds a quantum of audio voiced by the old preset. Ramping up immediately
- * plays both. Measured: with no hold, a preset swap under a steady tone
- * produced a 0.13 sample step where the signal's own maximum is 0.047; with
- * the hold it stays inside the signal's own range.
+ * holds audio voiced by the old preset. Ramping up immediately plays both.
+ * Measured: with no hold, a preset swap under a steady tone produced a 0.13
+ * sample step where the signal's own maximum is 0.047; with the hold it stays
+ * inside the signal's own range.
  *
- * Total mute is therefore about 70 ms. That is audible as a gap and inaudible
- * as a click, which is the right way round for a change of voicing.
+ * The hold is counted in the ring, not on the clock. As a timer it assumed the
+ * ring held one quantum, and after a relink it holds two: the fade came back
+ * up over audio the old preset had voiced, and the new preset's transient
+ * arrived 40 ms later at full level, a 0.07 to 0.13 step on every swap. So the
+ * apply also marks the ring position the transient can start at, and the
+ * playback side stays silent until it has played HOLD_MS past it.
+ *
+ * Total mute is therefore about 70 ms plus whatever the ring holds. That is
+ * audible as a gap and inaudible as a click, which is the right way round for
+ * a change of voicing.
  */
 constexpr int APPLY_DELAY_MS = 20;
 constexpr int HOLD_MS        = 40;
@@ -968,6 +1000,16 @@ void on_apply_timer(void *userdata, uint64_t /*expirations*/)
 	/* Every mutation above is followed by exactly one processTimer, on this
 	 * thread; processAudio() no longer calls it. */
 	d->dsp->processTimer();
+
+	/* The audio voiced by what was just applied starts at most one capture
+	 * buffer past the current write position. Hold HOLD_MS beyond that. */
+	{
+		const uint32_t hold = d->rate ? (uint32_t)((uint64_t)d->rate * HOLD_MS / 1000) : 0;
+		d->release_at.store(d->ring_w.load(std::memory_order_acquire) +
+		                    d->last_chunk.load(std::memory_order_relaxed) + hold,
+		                    std::memory_order_relaxed);
+		d->release_pending.store(true, std::memory_order_release);
+	}
 
 	/* Stay silent a little longer: see HOLD_MS. */
 	d->apply_stage = 2;
