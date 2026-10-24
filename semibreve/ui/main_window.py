@@ -96,7 +96,10 @@ class MainWindow(QMainWindow):
         self._bg_alpha = 255
         self._bg_color = [0, 0, 0]
         self._bg_tint_alpha = 178
-        self._startup_preset_done = False
+        # Which daemon (by unique bus name) the sound was last put back on,
+        # and which one finished taking it. See _restore_sound.
+        self._restored_for = ""
+        self._settled_for = ""
         # Set only by the tray's Quit. Everything else that looks like closing
         # is a hide.
         self._quitting = False
@@ -280,6 +283,17 @@ class MainWindow(QMainWindow):
             self._refresh_all()
             self._restore_sound()
         else:
+            # Keep the sound as it last was, for whichever daemon comes next.
+            # Only from one that had finished taking the user's sound: one that
+            # died first would hand on its own defaults.
+            last = self._daemon.last_sound()
+            if last is not None and self._daemon.owner == self._settled_for:
+                sound = self._config.sound
+                sound.preset = last["preset"]
+                sound.effects = last["effects"]
+                sound.eq = last["eq"]
+                sound.bypass = last["bypass"]
+                sound.output_device = last["output_device"]
             self._banner.setText("Starting the audio engine…")
             self._banner.show()
             self._preset_note.setText("")
@@ -344,16 +358,22 @@ class MainWindow(QMainWindow):
         self._preset.blockSignals(False)
 
     def _restore_sound(self) -> None:
-        """Put back what the user last had, once, on first connection.
+        """Put back what the user last had, on each daemon this connects to.
+
+        The first is given the saved config; a later one, say the daemon
+        restarted after PipeWire went away, is given the sound the one before
+        it had. A new daemon starts from its built-in defaults, and those used
+        to replace the user's preset, effects and EQ without a word.
 
         Order matters. The preset moves every effect and every EQ band, so it
         goes first and the individual values are laid over it — otherwise a
         preset load a moment later would wipe them. The preset is applied under
         a fade inside the daemon, hence the delay before the rest.
         """
-        if self._startup_preset_done:
+        owner = self._daemon.owner
+        if owner == self._restored_for:
             return
-        self._startup_preset_done = True
+        self._restored_for = owner
         sound = self._config.sound
 
         if sound.output_device:
@@ -378,6 +398,7 @@ class MainWindow(QMainWindow):
         for band, gain in enumerate(sound.eq):
             self._daemon.set_eq_band(band, gain)
         self._daemon.set_bypass(sound.bypass)
+        self._settled_for = self._daemon.owner
         self._refresh_all()
 
     def _capture_sound(self) -> None:
