@@ -202,7 +202,7 @@ struct Impl {
 	/* Where our output goes, and the sinks the UI can pick from. Main-loop
 	 * state, kept current by a registry listener. */
 	std::string output_target;
-	struct Sink { std::string name, description; };
+	struct Sink { std::string name, description; int priority; };
 	std::vector<Sink> sinks;
 	std::map<uint32_t, std::string> id_to_name;
 	pw_registry *registry = nullptr;
@@ -212,7 +212,18 @@ struct Impl {
 	bool        pending_output = false;
 	std::string pending_output_name;
 
-	/* Set when a stream reports it has lost the server. See on_stream_state. */
+	/* Every device asked for, on the command line or over D-Bus, most recent
+	 * last. Losing the device in use falls back down this list, and the one at
+	 * the end is returned to when it comes back. See on_playback_state. */
+	std::vector<std::string> chosen_outputs;
+	/* No device left to send to: the next sink to appear is used. */
+	bool output_lost = false;
+	/* Losses since the output last ran, so a device that fails as soon as we
+	 * move to it cannot keep us bouncing between targets. */
+	int output_losses = 0;
+
+	/* Set when the capture side reports it has lost the server. See
+	 * on_capture_state. */
 	bool graph_lost = false;
 	/* Set while we are deliberately taking the playback stream down to point
 	 * it somewhere else, so its UNCONNECTED is not mistaken for a crash. */
@@ -422,20 +433,19 @@ void on_playback_process(void *userdata)
  *
  * Reconnecting in place would mean rebuilding both streams and renegotiating
  * the format from inside a state callback. Exiting is the honest move: the
- * systemd unit has Restart=always, so the sink comes back within a second and
- * the failure is visible in the journal. Without the unit, the launcher says
- * what happened.
+ * window restarts a daemon it started, and the failure is in the log rather
+ * than hidden behind a sink that has quietly gone.
+ *
+ * This is the capture side only. The capture stream is the sink itself, so its
+ * loss is the graph's; the playback side is just our way out, below.
  */
-void on_stream_state(void *userdata, enum pw_stream_state old,
-                     enum pw_stream_state state, const char *error)
+void on_capture_state(void *userdata, enum pw_stream_state old,
+                      enum pw_stream_state state, const char *error)
 {
 	Impl *d = static_cast<Impl *>(userdata);
 	(void)old;
 
-	/* Our own disconnect during an output change goes through UNCONNECTED on
-	 * the way to the new device. Without this guard, switching device looked
-	 * exactly like losing the server and the daemon exited on the spot. */
-	if (d->reconnecting || d->stopping)
+	if (d->stopping)
 		return;
 
 	if (state == PW_STREAM_STATE_ERROR ||
@@ -446,6 +456,96 @@ void on_stream_state(void *userdata, enum pw_stream_state old,
 		if (d->loop)
 			pw_main_loop_quit(d->loop);
 	}
+}
+
+/* Defined below with the other control-surface helpers. */
+void control_set_output(Impl *d, const std::string &name);
+
+/* Record a device someone asked for, most recent last, each name once. */
+void remember_choice(Impl *d, const std::string &name)
+{
+	auto &chosen = d->chosen_outputs;
+	chosen.erase(std::remove(chosen.begin(), chosen.end(), name), chosen.end());
+	chosen.push_back(name);
+	if (chosen.size() > 8)
+		chosen.erase(chosen.begin());
+}
+
+bool have_sink(const Impl *d, const std::string &name)
+{
+	for (const auto &sink : d->sinks)
+		if (sink.name == name)
+			return true;
+	return false;
+}
+
+/* Where to go when the device in use has gone: the most recent earlier choice
+ * that still exists, or failing that the sink WirePlumber ranks highest. Never
+ * the device that just failed. Empty when there is nowhere to go. */
+std::string fallback_output(const Impl *d)
+{
+	for (auto it = d->chosen_outputs.rbegin(); it != d->chosen_outputs.rend(); ++it)
+		if (*it != d->output_target && have_sink(d, *it))
+			return *it;
+	const Impl::Sink *best = nullptr;
+	for (const auto &sink : d->sinks)
+		if (sink.name != d->output_target && (best == nullptr || sink.priority > best->priority))
+			best = &sink;
+	return best ? best->name : std::string();
+}
+
+/*
+ * The playback side is only our way out, and losing it is not losing the
+ * graph. The usual cause is the device it was linked to going away: unplugged,
+ * switched off, out of Bluetooth range. Told not to move the stream
+ * (node.dont-reconnect, see main), WirePlumber errors it with "target not
+ * found". That used to be taken for a lost server and the daemon exited,
+ * taking the Semibreve sink with it: whatever was playing fell back to the
+ * hardware unprocessed, and a daemon the window had not started never came
+ * back.
+ *
+ * So move instead, under the same fade as any device change. With nowhere to
+ * go, wait for the next sink to appear; and when the device the user chose
+ * comes back, on_registry_global returns to it.
+ */
+constexpr int MAX_OUTPUT_LOSSES = 3;
+
+void on_playback_state(void *userdata, enum pw_stream_state old,
+                       enum pw_stream_state state, const char *error)
+{
+	Impl *d = static_cast<Impl *>(userdata);
+	(void)old;
+
+	/* Our own disconnect during an output change goes through UNCONNECTED on
+	 * the way to the new device. Without this guard, switching device looked
+	 * exactly like losing the output. */
+	if (d->reconnecting || d->stopping || d->graph_lost)
+		return;
+
+	if (state == PW_STREAM_STATE_PAUSED || state == PW_STREAM_STATE_STREAMING) {
+		d->output_losses = 0;
+		return;
+	}
+	if (state != PW_STREAM_STATE_ERROR && state != PW_STREAM_STATE_UNCONNECTED)
+		return;
+	if (d->pending_output || d->output_lost)
+		return;     /* already on it */
+
+	const std::string lost = d->output_target.empty() ? "(default)" : d->output_target;
+	const std::string next = ++d->output_losses > MAX_OUTPUT_LOSSES
+	                       ? std::string() : fallback_output(d);
+	if (next.empty()) {
+		fprintf(stderr, "semibreved: output %s went away (%s) and there is "
+		                "nowhere else to send it; waiting for a device\n",
+		        lost.c_str(), error ? error : "disconnected");
+		d->output_lost = true;
+		d->output_target.clear();
+		sb_bus_emit_changed(d->bus, "OutputDevice");
+		return;
+	}
+	fprintf(stderr, "semibreved: output %s went away (%s); moving to %s\n",
+	        lost.c_str(), error ? error : "disconnected", next.c_str());
+	control_set_output(d, next);
 }
 
 void on_capture_param_changed(void *userdata, uint32_t id, const struct spa_pod *param)
@@ -477,7 +577,7 @@ const struct pw_stream_events capture_events = [] {
 	e.version       = PW_VERSION_STREAM_EVENTS;
 	e.process       = on_capture_process;
 	e.param_changed = on_capture_param_changed;
-	e.state_changed = on_stream_state;
+	e.state_changed = on_capture_state;
 	return e;
 }();
 
@@ -485,7 +585,7 @@ const struct pw_stream_events playback_events = [] {
 	struct pw_stream_events e {};
 	e.version       = PW_VERSION_STREAM_EVENTS;
 	e.process       = on_playback_process;
-	e.state_changed = on_stream_state;
+	e.state_changed = on_playback_state;
 	return e;
 }();
 
@@ -723,13 +823,27 @@ void on_registry_global(void *userdata, uint32_t id, uint32_t /*permissions*/,
 	if (desc == nullptr)
 		desc = name;
 
-	for (const auto &sink : d->sinks)
-		if (sink.name == name)
-			return;
+	if (have_sink(d, name))
+		return;
 
-	d->sinks.push_back({ name, desc });
+	/* WirePlumber's own ranking, for when a lost device leaves no earlier
+	 * choice to fall back to. */
+	const char *prio = spa_dict_lookup(props, PW_KEY_PRIORITY_SESSION);
+
+	d->sinks.push_back({ name, desc, prio ? atoi(prio) : 0 });
 	d->id_to_name[id] = name;
 	sb_bus_emit_changed(d->bus, "OutputDevices");
+
+	/* Somewhere to go at last, or the device the user chose coming back. With
+	 * no output, every arrival re-picks the best: the registry announces the
+	 * existing sinks one at a time, and the move waits out the fade anyway. */
+	if (d->output_lost) {
+		control_set_output(d, fallback_output(d));
+	} else if (!d->chosen_outputs.empty() && d->chosen_outputs.back() == name &&
+	           d->output_target != name) {
+		fprintf(stderr, "semibreved: %s is back; returning to it\n", name);
+		control_set_output(d, name);
+	}
 }
 
 void on_registry_global_remove(void *userdata, uint32_t id)
@@ -816,6 +930,11 @@ bool reconnect_output(Impl *d, const std::string &name);
 void on_apply_timer(void *userdata, uint64_t /*expirations*/)
 {
 	Impl *d = static_cast<Impl *>(userdata);
+
+	/* An output loss can schedule a move just before the capture side reports
+	 * the whole graph gone; there is nothing to move to then. */
+	if (d->graph_lost || d->stopping)
+		return;
 
 	if (d->apply_stage == 2) {
 		/* The transient has had its hold. Safe to come back. */
@@ -949,6 +1068,7 @@ bool reconnect_output(Impl *d, const std::string &name)
 		return false;
 	}
 	d->output_target = name;
+	d->output_lost = false;
 	return true;
 }
 
@@ -1110,6 +1230,7 @@ int sb_set_output_device(SbControl *c, const char *name)
 		return 0;
 	for (const auto &sink : d->sinks) {
 		if (sink.name == name) {
+			remember_choice(d, sink.name);
 			control_set_output(d, sink.name);
 			return 1;
 		}
@@ -1222,7 +1343,9 @@ int main(int argc, char **argv)
 			       "  --bypass         pass audio through untouched, for A/B\n\n"
 			       "  Without --preset the built-in defaults are used. Everything\n"
 			       "  can be changed while it runs, over D-Bus: see\n"
-			       "  busctl --user introspect org.semibreve.Daemon /org/semibreve/Daemon\n");
+			       "  busctl --user introspect org.semibreve.Daemon /org/semibreve/Daemon\n\n"
+			       "  If the output device goes away, output moves to another one,\n"
+			       "  and back again when it returns.\n");
 			return 0;
 		} else {
 			fprintf(stderr, "semibreved: unknown argument '%s'\n", argv[i]);
@@ -1340,6 +1463,7 @@ int main(int argc, char **argv)
 
 	g_impl.output_target = output_arg;
 	if (!output_arg.empty()) {
+		remember_choice(&g_impl, output_arg);
 		pw_properties_set(play_props, PW_KEY_TARGET_OBJECT, output_arg.c_str());
 		/* A target on its own is only a preference: WirePlumber still moves the
 		 * stream when the default sink changes, which is exactly the moment we
