@@ -911,12 +911,14 @@ const struct pw_registry_events registry_events = [] {
  * sample step where the signal's own maximum is 0.047; with the hold it stays
  * inside the signal's own range.
  *
- * The hold is counted in the ring, not on the clock. As a timer it assumed the
- * ring held one quantum, and after a relink it holds two: the fade came back
- * up over audio the old preset had voiced, and the new preset's transient
- * arrived 40 ms later at full level, a 0.07 to 0.13 step on every swap. So the
- * apply also marks the ring position the transient can start at, and the
- * playback side stays silent until it has played HOLD_MS past it.
+ * The hold is counted in the ring, not on the clock. As a timer it assumed
+ * the ring held about 20 ms, but the ring holds one quantum, and the quantum
+ * is whatever the graph runs at: 2048 frames, 43 ms, as soon as a client asks
+ * for a large buffer, as paplay does. The fade then came back up over audio
+ * the old preset had voiced, and the new preset's transient arrived after it
+ * at full level, a 0.07 to 0.13 step at the swap. So the apply also marks the
+ * ring position the transient can start at, and the playback side stays
+ * silent until it has played HOLD_MS past it, whatever the quantum.
  *
  * Total mute is therefore about 70 ms plus whatever the ring holds. That is
  * audible as a gap and inaudible as a click, which is the right way round for
