@@ -21,11 +21,13 @@ comment explaining it.
 - A 31-band graphic equaliser
 - FxSound's 31 stock presets
 - A choice of output device, so the processed sound can go to any speaker,
-  headphone or DAC
+  headphone or DAC. Unplug it and the sound moves to another device, then
+  comes back when you plug it in again
 - A power button and a tray icon showing whether processing is on
 - One command starts everything and routes your audio through it, and quitting
   puts your audio back where it was
-- Settings are remembered between launches
+- Settings are remembered between launches, and if the audio engine has to
+  restart (when PipeWire does, say), it comes back with them
 
 ## Status
 
