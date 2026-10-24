@@ -93,7 +93,7 @@ ok "daemon claimed org.semibreve.Daemon"
 if $BUS introspect $DEST $OBJ > "$TMP/introspect.txt" 2>&1; then
     MISSING=
     for m in Bypass Fidelity Ambience Surround DynamicBoost Bass \
-             PresetId PresetName EqBands LoadPreset ListPresets SetEqBand; do
+             PresetId PresetName EqBands Underruns LoadPreset ListPresets SetEqBand; do
         grep -q "\\b$m\\b" "$TMP/introspect.txt" || MISSING="$MISSING $m"
     done
     [ -z "$MISSING" ] && ok "every documented member is present on the interface" \
@@ -181,6 +181,7 @@ h=b'RIFF'+struct.pack('<I',36+len(d))+b'WAVEfmt '+struct.pack('<IHHIIHH',16,3,2,
 open(sys.argv[1],'wb').write(h+d)
 EOF
 
+swap_once() {
 "$PROJ/build/semibreved" --preset Jazz > "$TMP/daemon2.log" 2>&1 &
 sleep 3
 unity_gain
@@ -196,11 +197,13 @@ sleep 1
 PULSE_SINK=semibreve paplay "$TMP/long.wav" &
 PLAY=$!
 sleep 2
+U0=$(getp Underruns | awk '{print $2}')
 $BUS call $DEST $OBJ $IFACE LoadPreset s Metal >/dev/null 2>&1
 sleep 2
-$BUS call $DEST $OBJ $IFACE LoadPreset s Vocal >/dev/null 2>&1 || \
-$BUS call $DEST $OBJ $IFACE LoadPreset s Rock  >/dev/null 2>&1
+$BUS call $DEST $OBJ $IFACE LoadPreset s Pop >/dev/null 2>&1
 wait $PLAY 2>/dev/null
+U1=$(getp Underruns | awk '{print $2}')
+SWAP_XRUNS=$(( ${U1:-0} - ${U0:-0} ))
 sleep 1
 pkill -f pw-record 2>/dev/null; sleep 1
 restore_gain
@@ -246,20 +249,24 @@ print(f"        {b-a} frames, largest sample step {mx:.4f} "
       f"(steady signal measures 0.0473), steps>{LIMIT}: {big}")
 sys.exit(0 if big == 0 else 1)
 EOF
-SWAP_RC=$?
+}
 
-# An xrun inserts silence, which is a step, and this check cannot tell that
-# apart from a fade that failed. The daemon counts them, so ask: if the graph
-# glitched, the capture is not evidence either way and saying so is better than
-# blaming the fade. Underruns are rare — most runs report none — so this
-# normally still gives a verdict.
-UNDER=$(sed -n 's/.*, \([0-9]*\) underruns.*/\1/p' "$TMP/daemon2.log" | tail -1)
-UNDER=${UNDER:-0}
-if [ "$SWAP_RC" != 0 ] && [ "$UNDER" != 0 ]; then
-    info "inconclusive: the daemon reported $UNDER underrun(s), so the step"
-    info "above is as likely to be the xrun as the preset change. Re-run."
-elif [ "$SWAP_RC" = 0 ]; then
+# An xrun inserts silence, which is a step, and the capture cannot tell that
+# apart from a fade that failed. This used to answer "inconclusive" whenever
+# the daemon's shutdown count showed an underrun, but every run counts one
+# before the tone starts, so the check could no longer fail, and a fade that
+# let the new preset's transient through on some swaps and not others went
+# unreported. The Underruns property is read either side of the swaps instead:
+# a step with no underrun among them is the fade's fault.
+swap_once; SWAP_RC=$?
+if [ "$SWAP_RC" != 0 ] && [ "$SWAP_XRUNS" != 0 ]; then
+    info "the graph ran short $SWAP_XRUNS time(s) during the swaps; measuring again"
+    swap_once; SWAP_RC=$?
+fi
+if [ "$SWAP_RC" = 0 ]; then
     ok "presets swapped under audio with no discontinuity"
+elif [ "$SWAP_XRUNS" != 0 ]; then
+    info "inconclusive: underruns during the swaps on both runs. Re-run."
 else
     bad "a preset change produced a step in the output"
 fi
