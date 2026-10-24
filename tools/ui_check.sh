@@ -185,7 +185,7 @@ idx = next((i for i in range(w._preset.count())
 w._preset.setCurrentIndex(idx)
 w._on_preset_activated(idx)
 spin(800)
-w._on_tray_quit()
+w.quit_app()
 with open(config_path(), "rb") as f:
     saved = tomllib.load(f)["sound"]["preset"]
 if saved == "Pop": ok("a preset chosen after closing to the tray is saved at Quit")

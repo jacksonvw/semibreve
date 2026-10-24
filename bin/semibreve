@@ -67,7 +67,11 @@ case "${1:-}" in
     # Quitting the app stops the daemon, so ask the app to quit and let it do
     # the tidying. The pkill is only a fallback for an app that is already gone.
     pkill -f 'semibreve\.main' 2>/dev/null
-    sleep 1
+    # Quit saves the sound and stops the daemon, which takes a moment.
+    for _ in $(seq 1 50); do
+        pgrep -f 'semibreve\.main' >/dev/null 2>&1 || break
+        sleep 0.1
+    done
     pkill -x semibreved 2>/dev/null
     prev=$(previous_default)
     if [ -n "$prev" ]; then

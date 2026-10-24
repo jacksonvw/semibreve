@@ -1,8 +1,9 @@
 """Semibreve — the UI for semibreved.
 
 Entry point: faulthandler on, logging configured before any UI module is
-imported, an excepthook that reaches the log, and ``os._exit`` after
-``app.exec()`` so a stuck Qt teardown cannot hang the process.
+imported, an excepthook that reaches the log, SIGTERM and SIGINT routed
+through Quit, and ``os._exit`` after ``app.exec()`` so a stuck Qt teardown
+cannot hang the process.
 """
 
 from __future__ import annotations
@@ -10,9 +11,12 @@ from __future__ import annotations
 import faulthandler
 import logging
 import os
+import signal
+import socket
 import sys
 import traceback
 
+from PySide6.QtCore import QSocketNotifier
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -22,6 +26,33 @@ log = logging.getLogger("semibreve")
 def _excepthook(et, ev, tb) -> None:
     traceback.print_exception(et, ev, tb)
     log.error("uncaught exception", exc_info=(et, ev, tb))
+
+
+def _quit_on_signals(window) -> tuple:
+    """End the app through Quit on SIGTERM and SIGINT.
+
+    bin/semibreve --stop sends SIGTERM, and Python's default is to die on the
+    spot: nothing saved since the window was last closed, and a daemon this
+    window started left for the script to kill. Python runs a handler only
+    between bytecodes, which Qt's loop never gives it, so the signal comes in
+    through a socket the loop watches. Returns what has to stay alive.
+    """
+    rsock, wsock = socket.socketpair()
+    rsock.setblocking(False)
+    wsock.setblocking(False)
+    signal.set_wakeup_fd(wsock.fileno())
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda _sig, _frame: window.quit_app())
+
+    def drain() -> None:
+        try:
+            rsock.recv(64)
+        except OSError:
+            pass
+
+    notifier = QSocketNotifier(rsock.fileno(), QSocketNotifier.Type.Read)
+    notifier.activated.connect(drain)
+    return rsock, wsock, notifier
 
 
 def main() -> None:
@@ -59,8 +90,10 @@ def main() -> None:
 
     window = MainWindow()
     window.show()
+    wakeup = _quit_on_signals(window)
 
     ret = app.exec()
+    del wakeup
     os._exit(ret)
 
 

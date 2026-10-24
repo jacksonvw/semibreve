@@ -219,7 +219,7 @@ class MainWindow(QMainWindow):
         self._tray = Tray(self._daemon, self)
         self._tray.show_requested.connect(self._on_tray_show)
         self._tray.preferences_requested.connect(self._on_tray_preferences)
-        self._tray.quit_requested.connect(self._on_tray_quit)
+        self._tray.quit_requested.connect(self.quit_app)
 
         self._restore_geometry()
         self._apply_appearance()
@@ -474,8 +474,11 @@ class MainWindow(QMainWindow):
         self._on_tray_show()
         self._on_preferences()
 
-    def _on_tray_quit(self) -> None:
+    def quit_app(self) -> None:
         """The only route that actually ends the app — and the daemon with it.
+
+        The tray's Quit, and SIGTERM, which is how bin/semibreve --stop asks;
+        see main.py.
 
         Quitting has to take the sink away. Leaving it behind means the user
         has "exited" something that is still their default output device, with
