@@ -81,6 +81,17 @@ def _coerce_color(raw) -> list[int]:
         return [0, 0, 0]
 
 
+def _table(parent: dict, key: str) -> dict:
+    """``parent[key]`` if it is a table, else an empty one.
+
+    A hand-edited ``sound = 5`` used to stop the app at startup with an
+    AttributeError, which is exactly the lock-out load_config promises not to
+    cause.
+    """
+    value = parent.get(key)
+    return value if isinstance(value, dict) else {}
+
+
 def _coerce_appearance(section: dict) -> AppearanceConfig:
     try:
         opacity = float(section.get("window_opacity", 1.0))
@@ -114,25 +125,26 @@ def load_config() -> AppConfig:
     except (OSError, tomllib.TOMLDecodeError):
         return AppConfig()
 
-    general = data.get("general", {})
-    raw_sound = data.get("sound", {})
+    general = _table(data, "general")
+    raw_sound = _table(data, "sound")
 
     effects: dict[str, float] = {}
-    for key, value in (raw_sound.get("effects") or {}).items():
+    for key, value in _table(raw_sound, "effects").items():
         try:
             effects[str(key)] = max(0.0, min(10.0, float(value)))
         except (TypeError, ValueError):
             continue
 
+    raw_eq = raw_sound.get("eq")
     eq: list[float] = []
-    for value in (raw_sound.get("eq") or []):
+    for value in (raw_eq if isinstance(raw_eq, list) else []):
         try:
             eq.append(max(-12.0, min(12.0, float(value))))
         except (TypeError, ValueError):
             eq.append(0.0)
 
     return AppConfig(
-        appearance=_coerce_appearance(data.get("appearance", {})),
+        appearance=_coerce_appearance(_table(data, "appearance")),
         sound=SoundConfig(
             preset=str(raw_sound.get("preset", "")),
             effects=effects,
