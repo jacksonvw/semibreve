@@ -145,6 +145,22 @@ class DaemonService(QObject):
             self._set_available(present)
         return present
 
+    def owner_pid(self) -> int:
+        """PID of whichever process owns the daemon's name right now, or 0.
+
+        Asked of the bus directly rather than from the last poll, so the
+        supervisor can tell a daemon that is serving from one it just saw die.
+        """
+        if self._bus is None:
+            return 0
+        try:
+            owner = self._bus.get_name_owner(SERVICE)
+            return int(self._bus.call_blocking(
+                "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                "GetConnectionUnixProcessID", "s", (owner,)))
+        except dbus.DBusException:
+            return 0
+
     def _set_available(self, present: bool) -> None:
         self._available = present
         self._last.clear()

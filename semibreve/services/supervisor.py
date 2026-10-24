@@ -18,6 +18,11 @@ The one case it deliberately does not own is a daemon it did not start: if one
 was already running when the app opened — from a shell, or a systemd unit — it
 is left alone at quit. Stopping something another owner started would be the
 same discourtesy in the other direction.
+
+Left alone is not the same as left gone, though. If a daemon like that goes
+away and whatever started it does not bring it back within a few seconds, the
+window starts one of its own, and owns that one. A second daemon refuses to
+start, so the worst a race can do is have one of the two exit.
 """
 
 from __future__ import annotations
@@ -50,6 +55,10 @@ MAX_RESTARTS = 3
 # it the count never reset, and the fourth unplugged output device of a session
 # was taken for a daemon that will not start.
 STABLE_SECONDS = 30
+
+# How long a daemon the window did not start may be gone before the window
+# starts its own: long enough for a service manager to have restarted it.
+ADOPT_GRACE_SECONDS = 3
 
 
 def _pactl(*args: str) -> str:
@@ -91,6 +100,7 @@ class Supervisor(QObject):
         self._ours = False          # did we start the one that is running?
         self._restarts = 0
         self._spawned_at = 0.0
+        self._gone_since: float | None = None
         self._stopping = False
 
         self._watch = QTimer(self)
@@ -178,7 +188,10 @@ class Supervisor(QObject):
     # -- supervision ------------------------------------------------------
 
     def _check(self) -> None:
-        if self._stopping or not self._ours:
+        if self._stopping:
+            return
+        if not self._ours:
+            self._check_adopted()
             return
         proc = self._proc
         if proc is None or proc.poll() is None:
@@ -186,6 +199,15 @@ class Supervisor(QObject):
 
         code = proc.returncode
         self._proc = None
+
+        # Ours stopped but the name is held: another daemon is serving (a
+        # second window got there first, say), and ours exited because it
+        # would not start a second sink. Adopt that one rather than retry.
+        other = self._daemon.owner_pid()
+        if other and other != proc.pid:
+            log.info("daemon pid %s is serving; adopting it", other)
+            self._ours = False
+            return
         if time.monotonic() - self._spawned_at >= STABLE_SECONDS:
             self._restarts = 0
         self._restarts += 1
@@ -199,3 +221,18 @@ class Supervisor(QObject):
         # a surprise. Both want the same answer: put the sink back.
         log.warning("daemon exited (%s) — restarting", code)
         self._spawn()
+
+    def _check_adopted(self) -> None:
+        """A daemon someone else started: once it has been gone for
+        ADOPT_GRACE_SECONDS, start our own."""
+        if self._daemon.available:
+            self._gone_since = None
+            return
+        now = time.monotonic()
+        if self._gone_since is None:
+            self._gone_since = now
+        elif now - self._gone_since >= ADOPT_GRACE_SECONDS:
+            log.info("the daemon this window adopted has gone; starting one")
+            self._gone_since = None
+            self._restarts = 0
+            self._spawn()
