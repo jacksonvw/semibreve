@@ -21,10 +21,10 @@ binding's gaps. dbus-python unpacks all of it natively.
 
 That leaves signals. dbus-python needs a GLib main loop to deliver them, which
 a Qt application does not run — so this polls instead and emits on change. The
-whole state is nine property reads over a local socket four times a second,
-nothing here is anywhere near an audio path, and a poll has one property a
-subscription lacks: when it stops working it takes the availability check down
-with it, visibly, instead of going quiet.
+whole state is one GetAll over a local socket four times a second, nothing here
+is anywhere near an audio path, and a poll has one property a subscription
+lacks: when it stops working it takes the availability check down with it,
+visibly, instead of going quiet.
 
 Availability is not assumed anywhere. The daemon can be stopped, restarted, or
 never started at all, and the window has to stay sane throughout — so this
@@ -82,9 +82,12 @@ class DaemonService(QObject):
         self._props = None
         self._iface = None
         self._available = False
+        self._owner = ""            # unique bus name of the daemon we are bound to
 
         # Last seen values, so the poll can emit only what actually moved.
         self._last: dict[str, object] = {}
+        # The last complete reading, kept after the daemon goes. See last_sound.
+        self._snapshot: dict[str, object] = {}
 
         self._poll = QTimer(self)
         self._poll.setInterval(250)
@@ -99,33 +102,54 @@ class DaemonService(QObject):
     def available(self) -> bool:
         return self._available
 
+    @property
+    def owner(self) -> str:
+        """The bound daemon's unique bus name: different for every daemon."""
+        return self._owner
+
     def _refresh_availability(self) -> bool:
-        """Bind or drop the proxy. Returns True if the daemon is there."""
+        """Bind or drop the proxy. Returns True if the daemon is there.
+
+        Follows the name's owner, not just whether the name exists. The proxy
+        is bound to the owner's unique name, so a daemon that restarted between
+        two polls used to leave it talking to a process that had gone: every
+        read came back as its default and every write went nowhere, with the
+        window none the wiser. A new owner is a new daemon, and is reported as
+        the old one going and the new one arriving.
+        """
         if self._bus is None:
             return False
         try:
-            present = SERVICE in self._bus.list_names()
+            owner = str(self._bus.get_name_owner(SERVICE))
         except dbus.DBusException:
-            present = False
+            owner = ""
 
-        if present and self._iface is None:
-            try:
-                obj = self._bus.get_object(SERVICE, PATH)
-                self._iface = dbus.Interface(obj, IFACE)
-                self._props = dbus.Interface(obj, PROPS_IFACE)
-            except dbus.DBusException:
-                log.exception("daemon present but could not be bound")
-                self._iface = self._props = None
-                return False
-        elif not present:
+        if owner != self._owner:
+            if self._available:
+                self._set_available(False)
             self._iface = self._props = None
+            self._owner = ""
+            if owner:
+                try:
+                    obj = self._bus.get_object(owner, PATH)
+                    self._iface = dbus.Interface(obj, IFACE)
+                    self._props = dbus.Interface(obj, PROPS_IFACE)
+                    self._owner = owner
+                except dbus.DBusException:
+                    log.exception("daemon present but could not be bound")
+                    self._iface = self._props = None
+                    return False
 
+        present = bool(self._owner)
         if present != self._available:
-            self._available = present
-            self._last.clear()
-            log.info("daemon %s", "appeared" if present else "went away")
-            self.availability_changed.emit(present)
+            self._set_available(present)
         return present
+
+    def _set_available(self, present: bool) -> None:
+        self._available = present
+        self._last.clear()
+        log.info("daemon %s", "appeared" if present else "went away")
+        self.availability_changed.emit(present)
 
     def _poll_once(self) -> None:
         """Read the daemon's state and emit whatever changed since last time.
@@ -138,22 +162,50 @@ class DaemonService(QObject):
         was_available = self._available
         if not self._refresh_availability():
             return
+        # One call, so the reading is a consistent whole. Read property by
+        # property, a daemon dying mid-poll returned defaults for the rest,
+        # and those went out as changes.
+        try:
+            state = dict(self._props.GetAll(IFACE))
+        except dbus.DBusException:
+            return          # going away; the next poll will say so
+        self._snapshot = state
         first = not was_available or not self._last
 
         for prop, _label in EFFECTS:
-            self._diff(prop, self.effect(prop), first,
+            self._diff(prop, state.get(prop), first,
                        lambda p, v: self.effect_changed.emit(p, float(v)))
-        self._diff("Bypass", self.bypass(), first,
+        self._diff("Bypass", state.get("Bypass"), first,
                    lambda _p, v: self.bypass_changed.emit(bool(v)))
-        self._diff("PresetId", self.preset_id(), first,
-                   lambda _p, _v: self.preset_changed.emit(self.preset_id(),
-                                                           self.preset_name()))
-        self._diff("EqBands", self.eq_bands(), first,
+        self._diff("PresetId", state.get("PresetId"), first,
+                   lambda _p, v: self.preset_changed.emit(
+                       str(v), str(state.get("PresetName", ""))))
+        self._diff("EqBands", state.get("EqBands"), first,
                    lambda _p, _v: self.eq_changed.emit())
-        self._diff("OutputDevice", self.output_device(), first,
+        self._diff("OutputDevice", state.get("OutputDevice"), first,
                    lambda _p, _v: self.output_changed.emit())
-        self._diff("OutputDevices", self.output_devices(), first,
+        self._diff("OutputDevices", state.get("OutputDevices"), first,
                    lambda _p, _v: self.output_changed.emit())
+
+    def last_sound(self) -> dict | None:
+        """The audio state as of the last complete poll, as plain values.
+
+        Kept after the daemon goes, so the window can put it back on whichever
+        daemon replaces it. None until a poll has succeeded.
+        """
+        s = self._snapshot
+        if not s:
+            return None
+        try:
+            return {
+                "preset": str(s.get("PresetId", "")),
+                "effects": {p: float(s.get(p, 0.0)) for p, _label in EFFECTS},
+                "eq": [float(entry[1]) for entry in s.get("EqBands", [])],
+                "bypass": bool(s.get("Bypass", False)),
+                "output_device": str(s.get("OutputDevice", "")),
+            }
+        except (TypeError, ValueError, IndexError):
+            return None
 
     def _diff(self, key: str, value, quiet: bool, emit) -> None:
         if self._last.get(key, _MISSING) != value:
