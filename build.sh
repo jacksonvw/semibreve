@@ -1,7 +1,7 @@
 #!/bin/bash
-# Semibreve — Milestone 0 build. Temporary; folds into pyproject.toml once the
-# DSP is verified. CC/CXX are honoured so the same tree builds under clang for
-# the cross-compiler differential.
+# Semibreve — the build: the DSP into build/libdfxdsp.so, then the daemon.
+# CC/CXX are honoured so the same tree builds under clang for the
+# cross-compiler differential.
 set -e
 CC=${CC:-gcc}; CXX=${CXX:-g++}; OPT=${OPT:--O2}
 OUT=${OUT:-build}

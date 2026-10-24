@@ -1,9 +1,9 @@
 /*
  * Semibreve — layer 2. The PipeWire node.
  *
- * Milestone 1: prove the audio path. A virtual sink appears, applications can
- * select it, audio passes through it, and FxSound's DSP is applied. Settings
- * are hardcoded; there is no D-Bus surface and no preset loading yet.
+ * A virtual sink named Semibreve that applications can select. Audio routed
+ * to it passes through FxSound's DSP and on to a real output device. Presets,
+ * effects, the EQ and the output device are driven over D-Bus; see dbus.c.
  *
  * This file is the only place in the project that owns a real-time thread, and
  * the split exists to keep it that way. Everything inside on_capture_process()
@@ -90,11 +90,9 @@
  * processTimer()
  *
  * Upstream calls it from inside processAudio(), where it can take the registry
- * mutex and walk a map. We removed that call. Anything that
- * mutates DSP state must run on the main loop thread and call
- * dsp.processTimer() afterwards. In Milestone 1 that is only startup, which is
- * why there is no queue here yet — there is nothing to enqueue until the D-Bus
- * surface lands in Milestone 3.
+ * mutex and walk a map. We removed that call. Anything that mutates DSP state
+ * must run on the main loop thread and call dsp.processTimer() afterwards:
+ * startup, every D-Bus setter, and on_apply_timer().
  */
 
 #include "DfxDsp.h"
@@ -123,8 +121,8 @@
 
 namespace {
 
-/* Stereo only for Milestone 1. FxSound is a stereo processor and the preset
- * format carries no channel map, so anything else is a Milestone 2 question. */
+/* Stereo only. FxSound is a stereo processor and the preset format carries no
+ * channel map. */
 constexpr uint32_t NCH = 2;
 
 /* Largest run of frames handed to DfxDsp in one call. PipeWire renegotiates
@@ -616,12 +614,10 @@ const struct pw_stream_events playback_events = [] {
 /* ---- presets ---------------------------------------------------------- */
 
 /*
- * Preset handling is all control-thread work and all of it happens before the
- * streams connect. Changing a preset while audio is running means mutating DSP
- * state the audio thread is reading, and the setters are not atomic — that is
- * what the fade in on_apply_timer() is for, and it lands with the D-Bus surface
- * in Milestone 3. Loading once at startup needs none of that machinery, so it
- * does not get any.
+ * Preset handling is all control-thread work. Loading one at startup happens
+ * before the streams connect and needs nothing more. Changing one while audio
+ * runs means mutating DSP state the audio thread is reading, and the setters
+ * are not atomic: that is what the fade in on_apply_timer() is for.
  */
 
 std::wstring widen(const std::string &s)
@@ -1350,8 +1346,8 @@ int sb_set_eq_gain(SbControl *c, int band, double db)
 int main(int argc, char **argv)
 {
 	/* glibc decodes preset bytes through LC_CTYPE; see dsp/linux/pt_stream.h.
-	 * Nothing in Milestone 1 loads a preset, but the DfxDsp constructor walks
-	 * the preset directory, so the locale has to be right before it runs. */
+	 * The DfxDsp constructor walks the preset directory, so the locale has to
+	 * be right before it runs, not just before a preset is loaded. */
 	setlocale(LC_ALL, "");
 
 	std::string preset_arg;
@@ -1487,11 +1483,12 @@ int main(int argc, char **argv)
 	}
 
 	/*
-	 * node.link-group ties the two nodes together as one unit, node.group puts
-	 * them on the same driver so the trigger handoff stays inside one cycle,
-	 * and node.virtual marks the pair as not backed by hardware. This is the
-	 * property set pw-loopback uses; a sink that omits it is either invisible
-	 * or unroutable, both of which were observed getting here.
+	 * node.group puts the two nodes on the same driver, so the ring between
+	 * them is filled and drained in step, and node.virtual marks the pair as
+	 * not backed by hardware. These come from the property set pw-loopback
+	 * uses; a sink that got them wrong was invisible or unroutable, both of
+	 * which were observed getting here. pw-loopback's node.link-group is left
+	 * out on purpose: see the note on the playback side below.
 	 */
 	pw_properties *cap_props = pw_properties_new(
 		PW_KEY_MEDIA_TYPE,       "Audio",
