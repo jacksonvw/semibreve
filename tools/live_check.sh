@@ -34,7 +34,32 @@ set -u
 cd "$(dirname "$(readlink -f "$0")")/.."
 PROJ=$PWD
 TMP=$(mktemp -d)
-trap 'pkill -f "$PROJ/build/semibreved" 2>/dev/null; pkill -f pw-record 2>/dev/null; rm -rf "$TMP"' EXIT
+trap 'restore_gain; pkill -f "$PROJ/build/semibreved" 2>/dev/null; pkill -f pw-record 2>/dev/null; rm -rf "$TMP"' EXIT
+
+# The comparisons assume unity gain into the sink, and Semibreve's own volume
+# is wherever the desktop's volume control last left it: as the default output
+# it is the device that control moves, and WirePlumber restores it. At 40% the
+# bypass null test failed on every frame. So measure at 100% and unmuted, and
+# put the user's setting back before the sink goes, or WirePlumber would keep
+# 100% as theirs.
+SAVED_GAIN=
+unity_gain() {
+    [ -n "$SAVED_GAIN" ] && return 0
+    SAVED_GAIN=$(pactl -f json list sinks | python3 -c '
+import json, sys
+for s in json.load(sys.stdin):
+    if s["name"] == "semibreve":
+        print(" ".join(str(v["value"]) for v in s["volume"].values()), int(s["mute"]))')
+    pactl set-sink-volume semibreve 100%
+    pactl set-sink-mute semibreve 0
+}
+restore_gain() {
+    [ -n "$SAVED_GAIN" ] || return 0
+    pactl set-sink-volume semibreve ${SAVED_GAIN% *} 2>/dev/null
+    pactl set-sink-mute semibreve "${SAVED_GAIN##* }" 2>/dev/null
+    SAVED_GAIN=
+    sleep 1         # time for WirePlumber to store it before the sink goes
+}
 
 ok()  { printf '  \033[32mpass\033[0m  %s\n' "$1"; }
 bad() { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; FAILED=1; }
@@ -104,6 +129,7 @@ run_once() {   # $1 = extra daemon args, $2 = capture path
     sleep 3
 
     pactl list short sinks | grep -q '\bsemibreve\b' || { echo "        sink never appeared"; return 1; }
+    unity_gain
 
     # keep the test silent: the output side auto-connects to the default sink
     local hw
@@ -120,6 +146,7 @@ run_once() {   # $1 = extra daemon args, $2 = capture path
     PULSE_SINK=semibreve paplay "$TMP/tone.wav"
     sleep 1
     pkill -f pw-record 2>/dev/null; sleep 1
+    restore_gain
     pkill -f "$PROJ/build/semibreved" 2>/dev/null; sleep 1
     return 0
 }

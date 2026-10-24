@@ -29,12 +29,37 @@ set -u
 cd "$(dirname "$(readlink -f "$0")")/.."
 PROJ=$PWD
 TMP=$(mktemp -d)
-trap 'pkill -f "$PROJ/build/semibreved" 2>/dev/null; pkill -f pw-record 2>/dev/null; rm -rf "$TMP"' EXIT
+trap 'restore_gain; pkill -f "$PROJ/build/semibreved" 2>/dev/null; pkill -f pw-record 2>/dev/null; rm -rf "$TMP"' EXIT
 
 ok()   { printf '  \033[32mpass\033[0m  %s\n' "$1"; }
 bad()  { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; FAILED=1; }
 info() { printf '        %s\n' "$1"; }
 FAILED=0
+
+# The audio halves assume unity gain into the sink, and Semibreve's own volume
+# is wherever the desktop's volume control last left it: as the default output
+# it is the device that control moves, and WirePlumber restores it. The swap
+# threshold below is calibrated at unity; at 40% a missing hold reads about
+# 0.03 and would pass. So measure at 100% and unmuted, and put the user's
+# setting back before the sink goes, or WirePlumber would keep 100% as theirs.
+SAVED_GAIN=
+unity_gain() {
+    [ -n "$SAVED_GAIN" ] && return 0
+    SAVED_GAIN=$(pactl -f json list sinks | python3 -c '
+import json, sys
+for s in json.load(sys.stdin):
+    if s["name"] == "semibreve":
+        print(" ".join(str(v["value"]) for v in s["volume"].values()), int(s["mute"]))')
+    pactl set-sink-volume semibreve 100%
+    pactl set-sink-mute semibreve 0
+}
+restore_gain() {
+    [ -n "$SAVED_GAIN" ] || return 0
+    pactl set-sink-volume semibreve ${SAVED_GAIN% *} 2>/dev/null
+    pactl set-sink-mute semibreve "${SAVED_GAIN##* }" 2>/dev/null
+    SAVED_GAIN=
+    sleep 1         # time for WirePlumber to store it before the sink goes
+}
 
 BUS="busctl --user"
 DEST=org.semibreve.Daemon
@@ -158,6 +183,7 @@ EOF
 
 "$PROJ/build/semibreved" --preset Jazz > "$TMP/daemon2.log" 2>&1 &
 sleep 3
+unity_gain
 HW=$(pactl get-default-sink)
 pw-link -d semibreve-output:output_FL "$HW:playback_FL" 2>/dev/null
 pw-link -d semibreve-output:output_FR "$HW:playback_FR" 2>/dev/null
@@ -177,6 +203,7 @@ $BUS call $DEST $OBJ $IFACE LoadPreset s Rock  >/dev/null 2>&1
 wait $PLAY 2>/dev/null
 sleep 1
 pkill -f pw-record 2>/dev/null; sleep 1
+restore_gain
 pkill -f "$PROJ/build/semibreved" 2>/dev/null; sleep 1
 
 python3 - "$TMP/swap.wav" <<'EOF'
@@ -255,6 +282,7 @@ capture_with_effects() {   # $1 = value for all five, $2 = capture path
     pkill -f "$PROJ/build/semibreved" 2>/dev/null; pkill -f pw-record 2>/dev/null; sleep 1
     "$PROJ/build/semibreved" > "$TMP/daemon3.log" 2>&1 &
     sleep 3
+    unity_gain
     for e in Fidelity Ambience Surround DynamicBoost Bass; do
         $BUS set-property $DEST $OBJ $IFACE "$e" d "$v" >/dev/null 2>&1
     done
@@ -270,6 +298,7 @@ capture_with_effects() {   # $1 = value for all five, $2 = capture path
     PULSE_SINK=semibreve paplay "$TMP/long.wav"
     sleep 1
     pkill -f pw-record 2>/dev/null; sleep 1
+    restore_gain
     pkill -f "$PROJ/build/semibreved" 2>/dev/null; sleep 1
 }
 
