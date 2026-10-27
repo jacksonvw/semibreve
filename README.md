@@ -31,8 +31,10 @@ comment explaining it.
 
 ## Status
 
-Working on Fedora 44 with PipeWire. Missing: packages and a systemd user unit,
-so for now it starts with `./bin/semibreve` rather than with your session.
+Working on Fedora 44 with PipeWire, run from a checkout, and on SteamOS 3.9 as
+a Flatpak. Missing: a Flathub listing (the Flatpak builds from this
+repository) and a systemd user unit, so for now it starts when you launch it
+rather than with your session.
 
 ## Built with
 
@@ -40,7 +42,9 @@ C and C++ for FxSound's DSP and the audio daemon, built with GCC; PipeWire for
 the audio graph; sd-bus from libsystemd for the D-Bus control interface; and
 Python with PySide6 and dbus-python for the window. It runs on Fedora Linux
 with PipeWire. KDE Plasma is recommended: on GNOME there is no tray area by
-default and the window blur is unavailable; everything else works.
+default and the window blur is unavailable; everything else works. The
+Flatpak builds the DSP and the daemon the same way in KDE's Flatpak SDK, and
+runs the window on KDE's runtime with PySide6 from Qt's base app.
 
 Three pieces, split so that nothing in the window can ever stall the audio:
 
@@ -98,6 +102,27 @@ gtk-update-icon-cache -t -f ~/.local/share/icons/hicolor
 
 To update, `git pull`, run `./build.sh` again, and repeat the last two lines
 above to refresh the icon.
+
+On any distribution with Flatpak, SteamOS included, Semibreve builds as a
+Flatpak instead, with nothing installed outside Flatpak, and adds itself to
+the app menu:
+
+```bash
+flatpak install flathub org.flatpak.Builder \
+    org.kde.Platform//6.11 org.kde.Sdk//6.11 io.qt.PySide.BaseApp//6.11
+
+git clone https://github.com/jacksonvw/semibreve.git
+cd semibreve
+flatpak run org.flatpak.Builder --user --install --force-clean \
+    build/flatpak flatpak/com.jacksonv.Semibreve.yml
+flatpak run com.jacksonv.Semibreve
+```
+
+It behaves as `./bin/semibreve` does, except that `--stop` can't reach a
+Semibreve started by another launch, since every launch of a Flatpak is a
+sandbox of its own; Quit in the tray menu stops it and puts your audio back.
+Its logs go to `~/.var/app/com.jacksonv.Semibreve/cache/`, and its settings to
+the `config/` folder beside it.
 
 The daemon can also be driven without the window:
 
