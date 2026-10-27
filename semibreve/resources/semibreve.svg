@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  Semibreve — a whole note, which is what the word means.
-
-  Drawn rather than borrowed so it scales cleanly from a 16px title bar to a
-  128px launcher. Coloured with KDE's colour-scheme convention: Plasma swaps
-  the ColorScheme-Text colour for the theme's own text colour, so the note is
-  light on a dark panel and dark on a light one. currentColor alone is not
-  enough, because Qt resolves it to black; wherever the convention is not
-  honoured, the stylesheet's #232629 applies instead.
--->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!--
+    Semibreve — a whole note, which is what the word means.
+
+    Drawn rather than borrowed so it scales cleanly from a 16px title bar to a
+    128px launcher. Coloured with KDE's colour-scheme convention: Plasma swaps
+    the ColorScheme-Text colour for the theme's own text colour, so the note is
+    light on a dark panel and dark on a light one. currentColor alone is not
+    enough, because Qt resolves it to black; wherever the convention is not
+    honoured, the stylesheet's #232629 applies instead.
+
+    The comment sits inside <svg> because file-type sniffing (shared-mime-info,
+    so GdkPixbuf and AppStream) only looks for "<svg" in the first 256 bytes.
+  -->
   <style type="text/css" id="current-color-scheme">.ColorScheme-Text { color:#232629; }</style>
   <g transform="rotate(-20 32 32)">
     <ellipse class="ColorScheme-Text" cx="32" cy="32" rx="20" ry="13"
