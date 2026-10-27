@@ -253,6 +253,7 @@ struct Impl {
 	std::atomic<uint64_t> frames_out {0};
 	std::atomic<uint64_t> underruns  {0};
 	std::atomic<uint64_t> overruns   {0};
+	std::atomic<uint64_t> trims      {0};  /* backlogs skipped, see on_playback_process */
 };
 
 Impl g_impl;
@@ -381,9 +382,27 @@ void on_playback_process(void *userdata)
 
 	uint32_t got = 0;
 	if (want > 0) {
-		const uint32_t r = d->ring_r.load(std::memory_order_relaxed);
+		uint32_t r = d->ring_r.load(std::memory_order_relaxed);
 		const uint32_t w = d->ring_w.load(std::memory_order_acquire);
-		const uint32_t avail = w - r;
+		uint32_t avail = w - r;
+
+		/*
+		 * Keep the ring at the one quantum of slack the hand-off needs. Each
+		 * side moves a quantum per cycle, so nothing ever drains a backlog:
+		 * whatever builds up (the capture side starting first, a stall on
+		 * either side) stays as latency for the rest of the session, up to
+		 * the ring's 0.68 s, delaying every application's sound behind its
+		 * picture. Past two quanta of slack, skip the oldest audio back down
+		 * to one.
+		 */
+		const uint32_t chunk = d->last_chunk.load(std::memory_order_relaxed);
+		const uint32_t slack = (chunk > want) ? chunk : want;
+		if (avail > want + 2 * slack) {
+			const uint32_t skip = avail - (want + slack);
+			r += skip;
+			avail -= skip;
+			d->trims.fetch_add(1, std::memory_order_relaxed);
+		}
 
 		got = (want < avail) ? want : avail;
 
@@ -1620,12 +1639,13 @@ int main(int argc, char **argv)
 
 	fprintf(stderr,
 	        "semibreved: %llu callbacks, %llu frames in, %llu frames out, "
-	        "%llu underruns, %llu overruns, %llu no-output-buffer\n",
+	        "%llu underruns, %llu overruns, %llu backlogs skipped, %llu no-output-buffer\n",
 	        (unsigned long long)g_impl.cb_count.load(),
 	        (unsigned long long)g_impl.frames_in.load(),
 	        (unsigned long long)g_impl.frames_out.load(),
 	        (unsigned long long)g_impl.underruns.load(),
 	        (unsigned long long)g_impl.overruns.load(),
+	        (unsigned long long)g_impl.trims.load(),
 	        (unsigned long long)g_impl.no_out_buf.load());
 
 	if (g_impl.bus_source)
