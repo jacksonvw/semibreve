@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.jacksonv.Semibreve</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+
+  <name>Semibreve</name>
+  <summary>FxSound's audio effects for PipeWire</summary>
+  <developer id="com.jacksonv">
+    <name>Jackson Vander Wal</name>
+  </developer>
+
+  <description>
+    <p>
+      Semibreve adds an output device called Semibreve to PipeWire. Everything
+      played through it passes through FxSound's audio engine, with the same
+      effects, presets and tuning as FxSound on Windows, and then on to your
+      speakers or headphones.
+    </p>
+    <p>
+      The DSP is not a reimplementation: it is FxSound's own C source, built
+      for Linux, with the changes Linux needed kept to the edges.
+    </p>
+    <ul>
+      <li>FxSound's five effects: Fidelity, Ambience, Surround, Dynamic Boost and Bass</li>
+      <li>A 31-band graphic equaliser</li>
+      <li>FxSound's 31 stock presets</li>
+      <li>A choice of output device; unplug it and the sound moves to another, then comes back when you plug it in again</li>
+      <li>A power button and a tray icon showing whether processing is on</li>
+      <li>Starting it routes your audio through it, and quitting puts your audio back where it was</li>
+      <li>Settings are remembered, and survive the audio engine restarting</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">com.jacksonv.Semibreve.desktop</launchable>
+  <provides>
+    <binary>semibreve</binary>
+  </provides>
+
+  <url type="homepage">https://github.com/jacksonvw/semibreve</url>
+  <url type="bugtracker">https://github.com/jacksonvw/semibreve/issues</url>
+  <url type="vcs-browser">https://github.com/jacksonvw/semibreve</url>
+
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/jacksonvw/semibreve/main/docs/screenshots/semibreve.png</image>
+      <caption>The Music preset loaded, with the 31-band equaliser open</caption>
+    </screenshot>
+  </screenshots>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.0.1" date="2026-10-26"/>
+  </releases>
+</component>

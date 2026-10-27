@@ -1,0 +1,80 @@
+# Semibreve as a Flatpak: the DSP and the engine built from this tree, and
+# the window on KDE's runtime with Qt's PySide6 base app. The engine, the
+# presets and the launcher keep the checkout's layout under
+# /app/share/semibreve, so each finds the others as it does there. Build and
+# install from the repository root:
+#   flatpak run org.flatpak.Builder --user --install --force-clean \
+#       build/flatpak flatpak/com.jacksonv.Semibreve.yml
+app-id: com.jacksonv.Semibreve
+runtime: org.kde.Platform
+runtime-version: '6.11'
+sdk: org.kde.Sdk
+base: io.qt.PySide.BaseApp
+base-version: '6.11'
+command: semibreve
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # The engine is a PipeWire node, and pactl, through PipeWire's PulseAudio
+  # server, makes it the default output and moves what's playing onto it.
+  - --filesystem=xdg-run/pipewire-0
+  - --socket=pulseaudio
+  # Plasma's colour scheme and fonts.
+  - --filesystem=xdg-config/kdeglobals:ro
+  # The engine's control interface, and the name the window holds so that a
+  # second launch, in a sandbox of its own, can tell it's running.
+  - --own-name=org.semibreve.Daemon
+  - --own-name=org.semibreve.App
+  # The tray icon.
+  - --talk-name=org.kde.StatusNotifierWatcher
+build-options:
+  env:
+    # Read by cleanup-BaseApp.sh: the window uses neither.
+    BASEAPP_REMOVE_WEBENGINE: '1'
+    BASEAPP_DISABLE_NUMPY: '1'
+cleanup:
+  # The base app's build tooling: headers, Qt's qmake specs, and the LLVM
+  # that shiboken's binding generator runs on.
+  - /include
+  - /mkspecs
+  - /lib/cmake
+  - /lib/libLLVM*
+  - /lib/libclang*
+  - /bin/shiboken6*
+  - /lib/python3*/site-packages/shiboken6_generator*
+cleanup-commands:
+  - /app/cleanup-BaseApp.sh
+  - rm -f /app/cleanup-BaseApp*.sh
+modules:
+  - dbus-python.yml
+  - python3-deps.yaml
+
+  - name: semibreve
+    buildsystem: simple
+    build-commands:
+      # The DSP and the engine, into build/ as in a checkout.
+      - ./build.sh
+      - install -Dm755 -t /app/share/semibreve/build build/semibreved build/libdfxdsp.so
+      - cp -r bin presets semibreve /app/share/semibreve/
+      - find /app/share/semibreve -name __pycache__ -prune -exec rm -rf {} +
+      # By hash: the deployed files' timestamps don't survive installation.
+      - python3 -m compileall -q --invalidation-mode checked-hash /app/share/semibreve/semibreve
+      # bin/semibreve finds the rest from its own location, through the link.
+      - mkdir -p /app/bin
+      - ln -s ../share/semibreve/bin/semibreve /app/bin/semibreve
+      - install -Dm644 semibreve/resources/semibreve.svg
+          /app/share/icons/hicolor/scalable/apps/com.jacksonv.Semibreve.svg
+      # The checkout's entry, with the Flatpak's icon.
+      - sed -e 's|^Icon=.*|Icon=com.jacksonv.Semibreve|'
+            semibreve.desktop > com.jacksonv.Semibreve.desktop
+      - install -Dm644 -t /app/share/applications com.jacksonv.Semibreve.desktop
+      - install -Dm644 -t /app/share/metainfo flatpak/com.jacksonv.Semibreve.metainfo.xml
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - .git
+          - .flatpak-builder
+          - build

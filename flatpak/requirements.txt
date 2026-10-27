@@ -1,0 +1,4 @@
+# Python packages for the Flatpak, pinned. After changing one, regenerate
+# python3-deps.yaml as flatpak/README.md describes.
+platformdirs==4.13.0
+tomli-w==1.2.0

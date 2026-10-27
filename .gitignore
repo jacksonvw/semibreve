@@ -2,6 +2,7 @@
 # builds that run_checks.sh and debugging make.
 build/
 build-*/
+.flatpak-builder/
 
 # Python caches
 __pycache__/
