@@ -22,6 +22,9 @@ from PySide6.QtWidgets import QApplication
 
 log = logging.getLogger("semibreve")
 
+# Held on the session bus while the window runs; see _claim_instance.
+APP_BUS_NAME = "org.semibreve.App"
+
 
 def _excepthook(et, ev, tb) -> None:
     traceback.print_exception(et, ev, tb)
@@ -55,6 +58,29 @@ def _quit_on_signals(window) -> tuple:
     return rsock, wsock, notifier
 
 
+def _claim_instance():
+    """Hold APP_BUS_NAME for as long as this window runs.
+
+    It is how bin/semibreve tells the window is already up. pgrep can't in a
+    Flatpak, where every launch is a separate sandbox that sees only its own
+    processes. Owning a name needs no D-Bus main loop, which this app doesn't
+    run (see services/daemon.py), and a private connection keeps it apart
+    from the daemon's polling. Returns the connection to keep alive, None if
+    another window holds the name, or False if there is no bus to ask.
+    """
+    import dbus
+    try:
+        bus = dbus.SessionBus(private=True)
+        reply = bus.request_name(APP_BUS_NAME, dbus.bus.NAME_FLAG_DO_NOT_QUEUE)
+    except dbus.exceptions.DBusException as exc:
+        log.warning("could not claim %s: %s", APP_BUS_NAME, exc)
+        return False
+    if reply != dbus.bus.REQUEST_NAME_REPLY_PRIMARY_OWNER:
+        bus.close()
+        return None
+    return bus
+
+
 def main() -> None:
     faulthandler.enable()
     logging.basicConfig(
@@ -71,15 +97,24 @@ def main() -> None:
     # Wayland takes the window's app_id from this, and Plasma matches it
     # against semibreve.desktop to give the task manager a name and an icon.
     # Without the .desktop installed the entry is nameless and iconless, which
-    # is most of what "no taskbar entry" looks like in practice.
-    app.setDesktopFileName("semibreve")
+    # is most of what "no taskbar entry" looks like in practice. In the
+    # Flatpak the entry and icon are named for the app ID instead.
+    app_id = os.environ.get("FLATPAK_ID", "semibreve")
+    app.setDesktopFileName(app_id)
 
     # By theme name, so KWin draws the icon itself. A pixmap reaches KWin as
     # pixel buffers whose alpha it misreads, which turns every anti-aliased
     # edge black or red in the title bar and task manager. The painted glyph
     # is only the fallback, for when semibreve.svg has not been installed.
     from semibreve.ui.tray import app_icon
-    app.setWindowIcon(QIcon.fromTheme("semibreve", app_icon()))
+    app.setWindowIcon(QIcon.fromTheme(app_id, app_icon()))
+
+    # One window at a time: a second would start its own tray icon and
+    # fight the first over the daemon.
+    instance = _claim_instance()
+    if instance is None:
+        log.info("another window holds %s; exiting", APP_BUS_NAME)
+        os._exit(0)
 
     # Closing the window hides it to the tray, so Qt must not take the last
     # window going away as a reason to exit. Quit is the tray menu's job.
@@ -93,7 +128,7 @@ def main() -> None:
     wakeup = _quit_on_signals(window)
 
     ret = app.exec()
-    del wakeup
+    del wakeup, instance
     os._exit(ret)
 
 

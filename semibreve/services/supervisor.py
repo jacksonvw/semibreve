@@ -43,7 +43,10 @@ log = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DAEMON = PROJECT_ROOT / "build" / "semibreved"
-LOG_PATH = "/tmp/semibreved.log"
+# /tmp is private to a Flatpak's sandbox, so there the log goes to the app's
+# cache folder, where the host can read it.
+LOG_PATH = (os.path.join(os.environ["XDG_CACHE_HOME"], "semibreved.log")
+            if "FLATPAK_ID" in os.environ else "/tmp/semibreved.log")
 
 # Give up after this many restarts in a row. A daemon that cannot survive its
 # own startup would otherwise be relaunched forever, and a fast loop is worse

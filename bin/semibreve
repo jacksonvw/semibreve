@@ -23,12 +23,31 @@ set -u
 # (through any symlink to it), so the clone can live anywhere.
 ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 DAEMON="$ROOT/build/semibreved"
-LOG=/tmp/semibreved.log
-UILOG=/tmp/semibreve.log
+# /tmp is private to a Flatpak's sandbox, so there the logs go to the app's
+# cache folder, where the host can read them.
+LOGDIR=/tmp
+[ -n "${FLATPAK_ID:-}" ] && LOGDIR=$XDG_CACHE_HOME
+LOG=$LOGDIR/semibreved.log
+UILOG=$LOGDIR/semibreve.log
 SINK=semibreve
-FALLBACK_FILE="$HOME/.config/semibreve/previous-sink"
+FALLBACK_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/semibreve/previous-sink"
 
 die() { echo "semibreve: $*" >&2; exit 1; }
+
+# WirePlumber lets a Flatpak's audio clients look but not touch, unless they
+# declare themselves a manager. Without this pactl can't make the sink the
+# default or move streams onto it: "Access denied".
+if [ -n "${FLATPAK_ID:-}" ]; then
+    export PULSE_PROP="media.category=Manager${PULSE_PROP:+ $PULSE_PROP}"
+fi
+
+# Whether a window is up, from the bus name it holds (see main.py). pgrep
+# can't tell in a Flatpak, where every launch is a separate sandbox.
+app_running() {
+    dbus-send --session --print-reply --dest=org.freedesktop.DBus \
+        /org/freedesktop/DBus org.freedesktop.DBus.NameHasOwner \
+        string:org.semibreve.App 2>/dev/null | grep -q 'boolean true'
+}
 
 # The sink to fall back to when we stop: whatever was default before we first
 # took over. Remembered on disk so --stop works in a new shell.
@@ -72,6 +91,8 @@ case "${1:-}" in
         pgrep -f 'semibreve\.main' >/dev/null 2>&1 || break
         sleep 0.1
     done
+    # A window in another Flatpak sandbox, which pkill can't reach.
+    app_running && die "can't reach the Semibreve running in another sandbox; use Quit in its tray menu"
     pkill -x semibreved 2>/dev/null
     prev=$(previous_default)
     if [ -n "$prev" ]; then
@@ -116,7 +137,7 @@ PY=/usr/bin/python3
 "$PY" -c 'import PySide6' 2>/dev/null \
     || die "$PY cannot import PySide6 — sudo dnf install python3-pyside6"
 
-if pgrep -f 'semibreve\.main' >/dev/null 2>&1; then
+if app_running || pgrep -f 'semibreve\.main' >/dev/null 2>&1; then
     echo "semibreve: already running"
     exit 0
 fi
