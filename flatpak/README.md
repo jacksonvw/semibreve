@@ -3,6 +3,14 @@
 `com.jacksonv.Semibreve.yml` builds Semibreve on KDE's Flatpak runtime; the
 main README has the build commands.
 
+## Qt and PySide
+
+The base app's PySide6 uses Qt's private API, which is tied to one exact Qt
+release, and KDE's runtime and Qt's base app update separately. When the
+runtime moves to a new Qt first, no window opens, and Semibreve's log ends in
+`could not import module 'PySide6.QtCore'`, until the base app catches up. It
+then needs rebuilding, since the build copies PySide6 out of the base app.
+
 ## Python packages
 
 The packages from PyPI are pinned in `requirements.txt`. `python3-deps.yaml`
