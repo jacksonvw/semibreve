@@ -3,9 +3,10 @@
 Why ctypes
 ----------
 KWin's blur is exposed through KWindowSystem's ``KWindowEffects``, which
-picks its own backend at runtime: the ``org_kde_kwin_blur`` Wayland
-protocol under a Wayland session, and ``_KDE_NET_WM_BLUR_BEHIND_REGION``
-under X11. That makes it the one call that works on both.
+picks its own backend at runtime: a Wayland protocol under a Wayland
+session (``ext_background_effect_v1`` on Plasma 6.7, ``org_kde_kwin_blur``
+before it), and ``_KDE_NET_WM_BLUR_BEHIND_REGION`` under X11. That makes
+it the one call that works on both.
 
 There is no Python binding for KF6, and PySide6 ships no QtWayland module,
 so we dlopen the library and call the single C++ entry point we need. The
