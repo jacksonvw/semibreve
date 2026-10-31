@@ -133,8 +133,12 @@ fi
 # /usr/bin/python3 explicitly: PySide6 here is the Fedora RPM and exists only
 # under the system interpreter, so a venv or pyenv shim on PATH would find the
 # package and then fail on `import PySide6`.
+#
+# -P on both calls keeps the folder Semibreve was started in off sys.path. It
+# can start from anywhere, and a logging.py there mustn't be imported in place
+# of Python's.
 PY=/usr/bin/python3
-"$PY" -c 'import PySide6' 2>/dev/null \
+"$PY" -P -c 'import PySide6' 2>/dev/null \
     || die "$PY cannot import PySide6 — sudo dnf install python3-pyside6"
 
 if app_running || pgrep -f 'semibreve\.main' >/dev/null 2>&1; then
@@ -142,7 +146,7 @@ if app_running || pgrep -f 'semibreve\.main' >/dev/null 2>&1; then
     exit 0
 fi
 
-env PYTHONPATH="$ROOT" nohup "$PY" -m semibreve.main >"$UILOG" 2>&1 &
+env PYTHONPATH="$ROOT" nohup "$PY" -P -m semibreve.main >"$UILOG" 2>&1 &
 
 if [ "$NO_ROUTE" = 0 ]; then
     # Wait for the app to bring the sink up, then move what is already playing.
